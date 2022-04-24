@@ -16,6 +16,7 @@
 #include <ctime>
 #include <thread>
 #include <chrono>
+#include "inc/Core/SPANN/IExtraSearcher.h"
 
 using namespace SPTAG;
 
@@ -153,7 +154,12 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     std::vector<float> latencies(options->m_batch, 0);
     int baseSquare = SPTAG::COMMON::Utils::GetBase<T>() * SPTAG::COMMON::Utils::GetBase<T>();
 
-    LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
+    // For Profiling
+    std::vector<SPTAG::SPANN::SearchStats> tatalstats(maxCheck.size());
+    std::vector<SPTAG::SPANN::SearchStats> stats(options->m_batch);
+
+    // LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
+    LOG(Helper::LogLevel::LL_Info, "[query]\t[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
     std::vector<float> totalAvg(maxCheck.size(), 0.0), total99(maxCheck.size(), 0.0), total95(maxCheck.size(), 0.0), totalRecall(maxCheck.size(), 0.0), totalLatency(maxCheck.size(), 0.0);
     for (int startQuery = 0; startQuery < queryVectors->Count(); startQuery += options->m_batch)
     {
@@ -167,6 +173,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             index.SetParameter("MaxCheck", maxCheck[mc].c_str());
 
             for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
+            for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats();
 
             std::atomic_size_t queriesSent(0);
             std::vector<std::thread> threads;
@@ -179,9 +186,9 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
                     if (qid < numQuerys)
                     {
                         auto t1 = std::chrono::high_resolution_clock::now();
-                        index.SearchIndex(results[qid]);
+                        index.SearchIndexStats(results[qid], (void *)(&stats[qid]));
                         auto t2 = std::chrono::high_resolution_clock::now();
-                        latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000000.0);
+                        latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count());
                     }
                     else
                     {
@@ -196,7 +203,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             for (auto& thread : threads) { thread.join(); }
 
             auto batchend = std::chrono::high_resolution_clock::now();
-            float batchLatency = (float)(std::chrono::duration_cast<std::chrono::microseconds>(batchend - batchstart).count() / 1000000.0);
+            float batchLatency = (float)(std::chrono::duration_cast<std::chrono::microseconds>(batchend - batchstart).count());
 
             float timeMean = 0, timeMin = MaxDist, timeMax = 0, timeStd = 0;
             for (int qid = 0; qid < numQuerys; qid++)
@@ -229,12 +236,23 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
             unsigned long long peakWSS = pmc.PeakWorkingSetSize / 1000000000;
 #endif
-            LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t\t%.4f\t\t%lluGB\n", startQuery, (startQuery + numQuerys), maxCheck[mc].c_str(), timeMean, l99, l95, recall, (numQuerys / batchLatency), peakWSS);
+            // LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t\t%.4f\t\t%lluGB\n", startQuery, (startQuery + numQuerys), maxCheck[mc].c_str(), timeMean, l99, l95, recall, (numQuerys / batchLatency), peakWSS);
             totalAvg[mc] += timeMean * numQuerys;
             total95[mc] += l95 * numQuerys;
             total99[mc] += l99 * numQuerys;
             totalRecall[mc] += recall * numQuerys;
             totalLatency[mc] += batchLatency;
+
+            for (int qid = 0; qid < numQuerys; qid++){
+                tatalstats[mc].m_exCheck += stats[qid].m_exCheck;
+                tatalstats[mc].m_totalListElementsCount += stats[qid].m_totalListElementsCount;
+                tatalstats[mc].m_diskIOCount += stats[qid].m_diskIOCount;
+                tatalstats[mc].m_diskAccessCount += stats[qid].m_diskAccessCount;
+
+                tatalstats[mc].m_totalSearchLatency += stats[qid].m_totalSearchLatency;
+                tatalstats[mc].m_exLatency += stats[qid].m_exLatency;
+                // tatalstats[mc].m_totalLatency += stats[qid].m_totalLatency;
+            }
         }
 
         if (fp.is_open())
@@ -270,9 +288,17 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
                 fp << std::endl;
             }
         }
-    }
+    }       // end of batch
     for (int mc = 0; mc < maxCheck.size(); mc++)
-        LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\n", 0, queryVectors->Count(), maxCheck[mc].c_str(), (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()), (total95[mc] / queryVectors->Count()), (totalRecall[mc] / queryVectors->Count()), (queryVectors->Count() / totalLatency[mc]));
+        LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n", 0, queryVectors->Count(), 
+            maxCheck[mc].c_str(), (totalRecall[mc] / queryVectors->Count()), 
+            (1.0 * tatalstats[mc].m_diskIOCount / queryVectors->Count()),
+            (1.0 * tatalstats[mc].m_diskAccessCount / queryVectors->Count()),
+            (queryVectors->Count() / totalLatency[mc] * 1000000),
+            (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()),
+            (1.0 * tatalstats[mc].m_exLatency / queryVectors->Count()),
+            (1.0 * tatalstats[mc].m_totalSearchLatency / queryVectors->Count())
+            );
 
     LOG(Helper::LogLevel::LL_Info, "Output results finish!\n");
 

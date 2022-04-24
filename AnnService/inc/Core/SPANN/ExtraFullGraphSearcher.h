@@ -206,7 +206,7 @@ namespace SPTAG
                     }
                     listElements += listInfo->listEleCount;
 #endif
-                }
+                }   // End of postingListCount
 
 #ifdef ASYNC_READ
                 while (unprocessed > 0)
@@ -498,7 +498,7 @@ namespace SPTAG
             };
 
             struct IndexContext {
-                std::vector<ListInfo> m_listInfos;
+                std::vector<ListInfo> m_listInfos;                  // Graph中每个点所对应的posting list所占用的page数
 
                 std::shared_ptr<SPTAG::Helper::DiskPriorityIO> m_indexFile;
 

@@ -192,11 +192,11 @@ public:
 
 
 protected:
-    const void* m_target;
+    const void* m_target;           // query
 
     void* m_quantizedTarget;
 
-    int m_resultNum;
+    int m_resultNum;                // 结果的数量
 
     bool m_withMeta;
 

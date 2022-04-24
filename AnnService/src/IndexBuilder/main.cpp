@@ -41,7 +41,7 @@ public:
 
 int main(int argc, char* argv[])
 {
-    std::shared_ptr<BuilderOptions> options(new BuilderOptions);
+    std::shared_ptr<BuilderOptions> options(new BuilderOptions);        // 命令行输入的参数
     if (!options->Parse(argc - 1, argv + 1))
     {
         exit(1);
@@ -52,9 +52,10 @@ int main(int argc, char* argv[])
     }
     LOG(Helper::LogLevel::LL_Info, "Set QuantizerFile = %s\n", options->m_quantizerFile.c_str());
 
+    // 当 m_indexAlgoType = SPANN 时，return SPANN::Index
     auto indexBuilder = VectorIndex::CreateInstance(options->m_indexAlgoType, options->m_inputValueType);
 
-    Helper::IniReader iniReader;
+    Helper::IniReader iniReader;                                        // .ini 文件的参数
     if (!options->m_builderConfigFile.empty() && iniReader.LoadIniFile(options->m_builderConfigFile) != ErrorCode::Success)
     {
         LOG(Helper::LogLevel::LL_Error, "Cannot open index configure file!");
@@ -79,7 +80,7 @@ int main(int argc, char* argv[])
         LOG(Helper::LogLevel::LL_Info, "Set [%s]%s = %s\n", sectionName.c_str(), paramName.c_str(), paramVal.c_str());
     }
 
-    std::string sections[] = { "Base", "SelectHead", "BuildHead", "BuildSSDIndex", "Index" };
+    std::string sections[] = { "Base", "SelectHead", "BuildHead", "BuildSSDIndex", "Index" };   // 设置不同阶段的线程数
     for (int i = 0; i < 5; i++) {
         if (!iniReader.DoesParameterExist(sections[i], "NumberOfThreads")) {
             iniReader.SetParameter(sections[i], "NumberOfThreads", std::to_string(options->m_threadNum));

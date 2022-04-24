@@ -303,9 +303,9 @@ VectorIndex::SaveIndex(const std::string& p_folderPath)
             size_t firstSep = oldFolder.length(), lastSep = file.find_last_of(FolderSep);
             std::string newFolder = folderPath + ((lastSep > firstSep)? file.substr(firstSep, lastSep - firstSep) : ""), filename = file.substr(lastSep + 1);
             if (!direxists(newFolder.c_str())) mkdir(newFolder.c_str());
-            LOG(Helper::LogLevel::LL_Info, "Copy file %s to %s...\n", file.c_str(), (newFolder + FolderSep + filename).c_str());
-            if (!copyfile(file.c_str(), (newFolder + FolderSep + filename).c_str()))
-                return ErrorCode::DiskIOFail;
+            // LOG(Helper::LogLevel::LL_Info, "Copy file %s to %s...\n", file.c_str(), (newFolder + FolderSep + filename).c_str());
+            // if (!copyfile(file.c_str(), (newFolder + FolderSep + filename).c_str()))
+            //     return ErrorCode::DiskIOFail;
         }
         SetParameter("IndexDirectory", p_folderPath, "Base");
     }
@@ -401,7 +401,7 @@ VectorIndex::SaveIndexToFile(const std::string& p_file, IAbortOperation* p_abort
 
 
 ErrorCode
-VectorIndex::BuildIndex(std::shared_ptr<VectorSet> p_vectorSet,
+VectorIndex::BuildIndex(std::shared_ptr<VectorSet> p_vectorSet,                             // 这些输入参数的含义还不明确
     std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex, bool p_normalized)
 {
     if (nullptr == p_vectorSet || p_vectorSet->GetValueType() != GetVectorValueType())
@@ -426,6 +426,13 @@ VectorIndex::SearchIndex(const void* p_vector, int p_vectorCount, int p_neighbor
         QueryResult res((char*)p_vector + i * vectorSize, p_neighborCount, p_withMeta, p_results + i * p_neighborCount);
         SearchIndex(res);
     }
+    return ErrorCode::Success;
+}
+
+ErrorCode
+VectorIndex::SearchIndexStats(QueryResult &p_query, void* p_stats, bool p_searchDeleted) const {
+    printf("Error\n");
+    exit(1);
     return ErrorCode::Success;
 }
 
