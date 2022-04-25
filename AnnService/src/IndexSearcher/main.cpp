@@ -181,7 +181,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
                         auto t1 = std::chrono::high_resolution_clock::now();
                         index.SearchIndex(results[qid]);
                         auto t2 = std::chrono::high_resolution_clock::now();
-                        latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000000.0);
+                        latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count());
                     }
                     else
                     {
@@ -196,7 +196,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             for (auto& thread : threads) { thread.join(); }
 
             auto batchend = std::chrono::high_resolution_clock::now();
-            float batchLatency = (float)(std::chrono::duration_cast<std::chrono::microseconds>(batchend - batchstart).count() / 1000000.0);
+            float batchLatency = (float)(std::chrono::duration_cast<std::chrono::microseconds>(batchend - batchstart).count());
 
             float timeMean = 0, timeMin = MaxDist, timeMax = 0, timeStd = 0;
             for (int qid = 0; qid < numQuerys; qid++)
@@ -229,7 +229,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
             unsigned long long peakWSS = pmc.PeakWorkingSetSize / 1000000000;
 #endif
-            LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t\t%.4f\t\t%lluGB\n", startQuery, (startQuery + numQuerys), maxCheck[mc].c_str(), timeMean, l99, l95, recall, (numQuerys / batchLatency), peakWSS);
+            // LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t\t%.4f\t\t%lluGB\n", startQuery, (startQuery + numQuerys), maxCheck[mc].c_str(), timeMean, l99, l95, recall, (numQuerys / batchLatency), peakWSS);
             totalAvg[mc] += timeMean * numQuerys;
             total95[mc] += l95 * numQuerys;
             total99[mc] += l99 * numQuerys;
@@ -272,7 +272,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         }
     }
     for (int mc = 0; mc < maxCheck.size(); mc++)
-        LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\n", 0, queryVectors->Count(), maxCheck[mc].c_str(), (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()), (total95[mc] / queryVectors->Count()), (totalRecall[mc] / queryVectors->Count()), (queryVectors->Count() / totalLatency[mc]));
+        LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\n", 0, queryVectors->Count(), maxCheck[mc].c_str(), (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()), (total95[mc] / queryVectors->Count()), (totalRecall[mc] / queryVectors->Count()), (queryVectors->Count() / totalLatency[mc] * 1e6));
 
     LOG(Helper::LogLevel::LL_Info, "Output results finish!\n");
 

@@ -303,9 +303,9 @@ VectorIndex::SaveIndex(const std::string& p_folderPath)
             size_t firstSep = oldFolder.length(), lastSep = file.find_last_of(FolderSep);
             std::string newFolder = folderPath + ((lastSep > firstSep)? file.substr(firstSep, lastSep - firstSep) : ""), filename = file.substr(lastSep + 1);
             if (!direxists(newFolder.c_str())) mkdir(newFolder.c_str());
-            LOG(Helper::LogLevel::LL_Info, "Copy file %s to %s...\n", file.c_str(), (newFolder + FolderSep + filename).c_str());
-            if (!copyfile(file.c_str(), (newFolder + FolderSep + filename).c_str()))
-                return ErrorCode::DiskIOFail;
+            // LOG(Helper::LogLevel::LL_Info, "Copy file %s to %s...\n", file.c_str(), (newFolder + FolderSep + filename).c_str());
+            // if (!copyfile(file.c_str(), (newFolder + FolderSep + filename).c_str()))
+            //     return ErrorCode::DiskIOFail;
         }
         SetParameter("IndexDirectory", p_folderPath, "Base");
     }
