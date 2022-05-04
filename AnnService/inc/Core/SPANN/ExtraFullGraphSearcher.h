@@ -266,7 +266,7 @@ namespace SPTAG
                 int numThreads = p_opt.m_iSSDNumberOfThreads;
                 int candidateNum = p_opt.m_internalResultNum;
 
-                std::unordered_set<SizeType> headVectorIDS;
+                std::unordered_set<SizeType> headVectorIDS;             // 顺序存储heads id
                 if (p_opt.m_headIDFile.empty()) {
                     LOG(Helper::LogLevel::LL_Error, "Not found VectorIDTranslate!\n");
                     return false;
@@ -294,7 +294,7 @@ namespace SPTAG
                     fullCount = fullVectors->Count();
                     vectorInfoSize = fullVectors->PerVectorDataSize() + sizeof(int);
                 }
-
+                // selections的关键是若干个Edge，共有fullCount * m_replicaCount个
                 Selection selections(static_cast<size_t>(fullCount) * p_opt.m_replicaCount, p_opt.m_tmpdir);
                 LOG(Helper::LogLevel::LL_Info, "Full vector count:%d Edge bytes:%llu selection size:%zu, capacity size:%zu\n", fullCount, sizeof(Edge), selections.m_selections.size(), selections.m_selections.capacity());
                 std::vector<std::atomic_int> replicaCount(fullCount);
@@ -340,7 +340,7 @@ namespace SPTAG
                         }
                         acc = acc / sampleNum;
                         LOG(Helper::LogLevel::LL_Info, "Batch %d vector(%d,%d) loaded with %d vectors (%zu) HeadIndex acc @%d:%f.\n", i, start, end, fullVectors->Count(), selections.m_selections.size(), candidateNum, acc);
-
+                        // 对全部点（除了heads）在heads中搜索距离最近的前candidateNum个结果，并基于RNG规则从中选出replicaCount个。
                         p_headIndex->ApproximateRNG(fullVectors, emptySet, candidateNum, selections.m_selections.data(), p_opt.m_replicaCount, numThreads, p_opt.m_gpuSSDNumTrees, p_opt.m_gpuSSDLeafSize, p_opt.m_rngFactor, p_opt.m_numGPUs);
 
                         for (SizeType j = start; j < end; j++) {
@@ -364,7 +364,7 @@ namespace SPTAG
                 if (p_opt.m_batches > 1) selections.LoadBatch(0, static_cast<size_t>(fullCount) * p_opt.m_replicaCount);
 
                 // Sort results either in CPU or GPU
-                VectorIndex::SortSelections(&selections.m_selections);
+                VectorIndex::SortSelections(&selections.m_selections);      // 按照 node、dist、tonode 的优先级排序，小的在前
 
                 auto t3 = std::chrono::high_resolution_clock::now();
                 LOG(Helper::LogLevel::LL_Info, "Time to sort selections:%.2lf sec.\n", ((double)std::chrono::duration_cast<std::chrono::seconds>(t3 - t2).count()) + ((double)std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count()) / 1000);
@@ -406,7 +406,7 @@ namespace SPTAG
                     }
                     postingListSize[i] = postingSizeLimit;
                 }
-
+                // 原始版本这里的默认值是false。
                 if (p_opt.m_outputEmptyReplicaID)
                 {
                     std::vector<int> replicaCountDist(p_opt.m_replicaCount + 1, 0);
@@ -729,7 +729,7 @@ namespace SPTAG
                     LOG(Helper::LogLevel::LL_Error, "Failed open file %s\n", p_outputFile.c_str());
                     exit(1);
                 }
-
+                // 子索引的大小
                 std::uint64_t listOffset = sizeof(int) * 4;
                 listOffset += (sizeof(int) + sizeof(std::uint16_t) + sizeof(int) + sizeof(std::uint16_t)) * p_postingListSizes.size();
 
@@ -773,7 +773,7 @@ namespace SPTAG
                     LOG(Helper::LogLevel::LL_Error, "Failed to write SSDIndex File!");
                     exit(1);
                 }
-
+                // 存储每个postingList的信息
                 for (int i = 0; i < p_postingListSizes.size(); ++i)
                 {
                     int pageNum = 0;

@@ -160,7 +160,8 @@ namespace SPTAG
 
             auto startTime = std::chrono::high_resolution_clock::now();
             m_index->SearchIndex(p_query);
-            // auto endTime = std::chrono::high_resolution_clock::now();
+            // HNSW search
+            // Todo: HNSW index
 
             COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
             std::shared_ptr<ExtraWorkSpace> workSpace = nullptr;
@@ -168,7 +169,7 @@ namespace SPTAG
                 workSpace = m_workSpacePool->Rent();
                 workSpace->m_postingIDs.clear();
 
-                float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;
+                float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;        // 计算heads的最大距离限制
                 for (int i = 0; i < m_options.m_searchInternalResultNum; ++i)
                 {
                     auto res = p_queryResults->GetResult(i);
@@ -176,23 +177,21 @@ namespace SPTAG
                     workSpace->m_postingIDs.emplace_back(res->VID);
                 }
 
-                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
+                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)                                // 对heads的ID进行转换
                 {
                     auto res = p_queryResults->GetResult(i);
                     if (res->VID == -1) break;
                     res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
                 }
-                auto endTime = std::chrono::high_resolution_clock::now();
+                auto endTimeHeads = std::chrono::high_resolution_clock::now();
 
                 p_queryResults->Reverse();
-                m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, pp_stats);       // 需要传入SearchStats做分析
+                m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, pp_stats);      // 需要传入SearchStats做分析
                 p_queryResults->SortResult();
                 m_workSpacePool->Return(workSpace);
-                printf("%f\n", p_queryResults->worstDist());
-                auto exEndTime = std::chrono::high_resolution_clock::now();
-                pp_stats->m_totalSearchLatency = (double)(std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count());
-                pp_stats->m_exLatency = (double)(std::chrono::duration_cast<std::chrono::microseconds>(exEndTime - endTime).count());
-                // pp_stats->m_totalLatency = (double)(std::chrono::duration_cast<std::chrono::microseconds>(exEndTime - startTime).count());
+                auto endTimeSSD = std::chrono::high_resolution_clock::now();
+                pp_stats->m_totalSearchLatency = (double)(std::chrono::duration_cast<std::chrono::microseconds>(endTimeHeads - startTime).count());
+                pp_stats->m_exLatency = (double)(std::chrono::duration_cast<std::chrono::microseconds>(endTimeSSD - endTimeHeads).count());
             }
 
             if (p_query.WithMeta() && nullptr != m_pMetadata)
@@ -473,13 +472,13 @@ namespace SPTAG
                     return false;
                 }
             }
-
+            // 到这里后，其实就选出了 Ratio * vector_size 个点
             LOG(Helper::LogLevel::LL_Info,
                 "Seleted Nodes: %u, about %.2lf%% of total.\n",
                 static_cast<unsigned int>(selected.size()),
                 selected.size() * 100.0 / data.R());
 
-            if (!m_options.m_noOutput)
+            if (!m_options.m_noOutput)          // heads的ID 和 vector
             {
                 std::sort(selected.begin(), selected.end());
 
@@ -534,7 +533,7 @@ namespace SPTAG
             }
 
             m_options.m_vectorSize = p_reader->GetVectorSet()->Count();
-
+            // 选出了要作为索引的点
             auto t1 = std::chrono::high_resolution_clock::now();
             if (m_options.m_selectHead) {
                 omp_set_num_threads(m_options.m_iSelectHeadNumberOfThreads);

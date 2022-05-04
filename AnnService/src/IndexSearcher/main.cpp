@@ -171,6 +171,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         for (int mc = 0; mc < maxCheck.size(); mc++)
         {
             index.SetParameter("MaxCheck", maxCheck[mc].c_str());
+            // printf("[debug] maxcheck: %d\n", index.GetCurrMaxCheck());
 
             for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
             for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats();

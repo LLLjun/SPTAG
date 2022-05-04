@@ -234,7 +234,7 @@ namespace SPTAG
                 nodeCheckStatus.clear();
                 m_SPTQueue.clear();
                 m_NGQueue.clear();
-                m_Results.clear(max(maxCheck / 16, resultNum));
+                m_Results.clear(max(maxCheck / 16, resultNum));                 // 为什么是16？
 
                 m_iNumOfContinuousNoBetterPropagation = 0;
                 //m_iContinuousLimit = maxCheck / 64;

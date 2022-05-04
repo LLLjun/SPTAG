@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
         LOG(Helper::LogLevel::LL_Error, "Cannot open index configure file!");
         return -1;
     }
-
+    // 这一段完全没有用到…
     for (int i = 1; i < argc; i++)
     {
         std::string param(argv[i]);
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
     ErrorCode code;
     if (fileexists(options->m_inputFiles.c_str())) {
         auto vectorReader = Helper::VectorSetReader::CreateInstance(options);
-        if (ErrorCode::Success != vectorReader->LoadFile(options->m_inputFiles))
+        if (ErrorCode::Success != vectorReader->LoadFile(options->m_inputFiles))    // 同时支持metadata（如果有），没有的话，GetMetadataSet=nullptr
         {
             LOG(Helper::LogLevel::LL_Error, "Failed to read input file.\n");
             exit(1);
