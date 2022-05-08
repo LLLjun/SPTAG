@@ -5,18 +5,18 @@ vecdim  = 96
 size_base = 1
 format = "Float"
 
-stage = "search"
+stage = "build"
 cmake_mode = "Release"
 alg = "SPANN"
 
-path_dataset = "/home/usr-xkIJigVq/DataSet/" + dataset
+path_dataset = "../dataset/" + dataset
 path_datasize = path_dataset + "/" + dataset + str(size_base) + "m"
 
 path_base   = path_datasize + "/base." + str(size_base) + "m.fbin"
 path_gt     = path_datasize + "/groundtruth." + str(size_base) + "m.bin"
 path_query  = path_dataset + "/query.public.10K.fbin"
 
-path_index = "graphindex/" + alg + "/" + dataset + str(size_base) + "m_test"
+path_index = "graphindex/" + alg + "/actual/" + dataset + str(size_base) + "m_c8p12"
 
 def main():
     cmd_make = "cd build && cmake -DCMAKE_BUILD_TYPE=" + cmake_mode + " .."
@@ -27,7 +27,7 @@ def main():
     os.system(cmd_make)
 
     cmd_build = "./Release/indexbuilder " + \
-                "-c buildconfig.ini " + \
+                "-c buildconfig" + format + ".ini " + \
                 "-d " + str(vecdim) + " " + \
                 "-v " + format + " " + \
                 "-f DEFAULT " + \
@@ -48,10 +48,8 @@ def main():
                     "-t " + str(t) + " " + \
                     "-k 10 " + \
                     "-x " + path_index + " " + \
-                    "-m 1#4#8#16#32#1024#2048#4096#8192"
+                    "-m 2"
         if stage == "both" or stage == "search":
             os.system(cmd_search)
 
 main()
-
-# "-c buildconfig.ini " + \

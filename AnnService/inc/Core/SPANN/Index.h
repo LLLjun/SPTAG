@@ -22,6 +22,7 @@
 
 #include "IExtraSearcher.h"
 #include "Options.h"
+#include "../hnswlib/hnswalg.h"
 
 #include <functional>
 #include <shared_mutex>
@@ -47,6 +48,8 @@ namespace SPTAG
             std::shared_ptr<IExtraSearcher> m_extraSearcher;
             std::unique_ptr<COMMON::WorkSpacePool<ExtraWorkSpace>> m_workSpacePool;
 
+            std::shared_ptr<hnswlib::HierarchicalNSW<T>> m_hnsw;
+
             Options m_options;
 
             float(*m_fComputeDistance)(const T* pX, const T* pY, DimensionType length);
@@ -60,6 +63,10 @@ namespace SPTAG
             }
 
             ~Index() {}
+
+            // void SetHnswEfs(int efs) { m_hnsw->setEf((size_t) efs); }
+            // 原始的SPANN并不能通过maxcheck来很好的调整最终精度，因此这里引入了调节索引结果数[失败了]
+            inline void SetMaxCheck (int mc) { m_index->SetMaxCheck(mc); }
 
             inline std::shared_ptr<VectorIndex> GetMemoryIndex() { return m_index; }
             inline std::shared_ptr<IExtraSearcher> GetDiskIndex() { return m_extraSearcher; }

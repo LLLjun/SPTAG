@@ -10,36 +10,110 @@
 #include <list>
 #include <map>
 #include <stack>
-#include "dataset.h"
 #include "config.h"
-#include "profile.h"
-#include "mem.h"
 #include "omp.h"
 
-namespace hnswlib {
-    typedef unsigned int tableint;
-    typedef unsigned int linklistsizeint;
+#include "inc/Core/VectorIndex.h"
 
-    template<typename dist_t>
-    class HierarchicalNSW : public AlgorithmInterface<dist_t> {
+class Timer {
+    typedef std::chrono::high_resolution_clock _clock;
+    std::chrono::time_point<_clock> check_point;
+
+public:
+    Timer() : check_point(_clock::now()) {
+    }
+
+    void reset() {
+        check_point = _clock::now();
+    }
+
+    double getElapsedTimeus() const {
+        return (double) std::chrono::duration_cast<std::chrono::microseconds>(
+                   _clock::now() - check_point).count();
+    }
+
+    double getElapsedTimes() const {
+        return getElapsedTimeus() * 1e-6;
+    }
+};
+
+// load file. store format: (uint32_t)num, (uint32_t)dim, (data_T)num * dim.
+template<typename data_T>
+void LoadBinToArray(std::string& file_path, data_T *data_m, uint32_t nums, uint32_t dims, bool non_header = false){
+    std::ifstream file_reader(file_path.c_str(), std::ios::binary);
+    if (!non_header){
+        uint32_t nums_r, dims_r;
+        file_reader.read((char *) &nums_r, sizeof(uint32_t));
+        file_reader.read((char *) &dims_r, sizeof(uint32_t));
+        if ((nums != nums_r) || (dims != dims_r)){
+            printf("Error, file %s is error, nums_r: %u, dims_r: %u\n", file_path.c_str(), nums_r, dims_r);
+            exit(1);
+        }
+    }
+
+    file_reader.read((char *) data_m, nums * dims * sizeof(data_T));
+    file_reader.close();
+    printf("Load %u * %u Data from %s done.\n", nums, dims, file_path.c_str());
+};
+
+template<typename data_T>
+uint32_t compArrayCenter(const data_T *data_m, uint32_t nums, uint32_t dims){
+    std::cout << "Comput the center point: \n";
+    float *sum_m = new float[dims]();
+    float *avg_m = new float[dims]();
+    for (size_t i = 0; i < nums; i++){
+        for (size_t j = 0; j < dims; j++){
+            sum_m[j] += data_m[i * dims + j];
+        }
+    }
+    for (size_t j = 0; j < dims; j++){
+        avg_m[j] = sum_m[j] / nums;
+    }
+
+    float cur_max = std::numeric_limits<float>::max();
+    uint32_t center_pt_id = 0;
+// #pragma omp parallel for
+    for (size_t i = 0; i < nums; i++){
+        float tmp_sum = 0;
+        for (size_t j = 0; j < dims; j++){
+            tmp_sum += powf((data_m[i * dims + j] - avg_m[j]), 2);
+        }
+// #pragma omp cratical
+        {
+            if (tmp_sum < cur_max){
+                cur_max = tmp_sum;
+                center_pt_id = i;
+            }
+        }
+    }
+    std::cout << center_pt_id << "\n";
+    return center_pt_id;
+};
+
+namespace hnswlib {
+    using namespace SPTAG;
+
+    typedef int32_t tableint;
+    typedef uint32_t linklistsizeint;
+
+    template<typename T=float>
+    class HierarchicalNSW {
     public:
         static const tableint max_update_element_locks = 65536;
-        HierarchicalNSW(SpaceInterface<dist_t> *s) {
 
+        HierarchicalNSW(const std::string &location, bool nmslib = false, size_t max_elements=0) {
+            loadIndex(location, max_elements);
         }
 
-        HierarchicalNSW(SpaceInterface<dist_t> *s, const std::string &location, bool nmslib = false, size_t max_elements=0) {
-            loadIndex(location, s, max_elements);
-        }
-
-        HierarchicalNSW(SpaceInterface<dist_t> *s, size_t max_elements, size_t M = 16, size_t ef_construction = 200, size_t random_seed = 100) :
+        HierarchicalNSW(size_t max_elements, size_t dim, size_t M = 16, size_t ef_construction = 200, size_t random_seed = 100) :
                 link_list_locks_(max_elements), link_list_update_locks_(max_update_element_locks), element_levels_(max_elements) {
             max_elements_ = max_elements;
 
             has_deletions_=false;
-            data_size_ = s->get_data_size();
-            fstdistfunc_ = s->get_dist_func();
-            dist_func_param_ = s->get_dist_func_param();
+
+            vecdim = dim;
+            data_size_ = vecdim * sizeof(T);
+
             M_ = M;
             maxM_ = M_;
             maxM0_ = M_ * 2;
@@ -63,8 +137,6 @@ namespace hnswlib {
 
             visited_list_pool_ = new VisitedListPool(1, max_elements);
 
-
-
             //initializations for special treatment of the first node
             enterpoint_node_ = -1;
             maxlevel_ = -1;
@@ -79,8 +151,8 @@ namespace hnswlib {
         }
 
         struct CompareByFirst {
-            constexpr bool operator()(std::pair<dist_t, tableint> const &a,
-                                      std::pair<dist_t, tableint> const &b) const noexcept {
+            constexpr bool operator()(std::pair<float, tableint> const &a,
+                                      std::pair<float, tableint> const &b) const noexcept {
                 return a.first < b.first;
             }
         };
@@ -135,41 +207,13 @@ namespace hnswlib {
 
 
         size_t label_offset_;
-        DISTFUNC<dist_t> fstdistfunc_;
-        void *dist_func_param_;
+        size_t vecdim;
+
         std::unordered_map<labeltype, tableint> label_lookup_;
 
         std::default_random_engine level_generator_;
         std::default_random_engine update_probability_generator_;
 
-#if MEMTRACE
-        /*
-            memory_organization:
-                |- query_data
-                |- data_level0
-                |- visited_list
-                |- result_queue
-                |- search_queue
-        */
-        mem<char>* main_mem;
-
-        void initMem(){
-            main_mem = new mem<char>();
-            main_mem->mem_offest_sw["data_level0"] = (long long) data_level0_memory_;
-            std::cout << main_mem->mem_offest_sw["data_level0"] << std::endl;
-
-            main_mem->mem_offest_hw["query_data"] = 0;
-            main_mem->mem_offest_hw["data_level0"] = (long long) ceil((float)data_size_ / MEM_ALIGNED) * MEM_ALIGNED;
-            main_mem->mem_offest_hw["visited_list"] = main_mem->mem_offest_hw["data_level0"] +
-                                            (long long) ceil((float) max_elements_ * size_data_per_element_ / MEM_ALIGNED) * MEM_ALIGNED;
-            main_mem->mem_offest_hw["result_queue"] = main_mem->mem_offest_hw["visited_list"] +
-                                            (long long) ceil((float) max_elements_ * sizeof(vl_type) / MEM_ALIGNED) * MEM_ALIGNED;
-            // main_mem->mem_offest_hw["search_queue"] = main_mem->mem_offest_hw["result_queue"] +
-            //                                 ceil((float) efs * (sizeof(dist_t) + sizeof(tableint)) / MEM_ALIGNED) * MEM_ALIGNED;
-
-            // std::cout << "address query_data : "
-        }
-#endif
 
         inline labeltype getExternalLabel(tableint internal_id) const {
             labeltype return_label;
@@ -195,30 +239,74 @@ namespace hnswlib {
             return (int) r;
         }
 
+        static const unsigned char DELETE_MARK = 0x01;
+//        static const unsigned char REUSE_MARK = 0x10;
+        /**
+         * Marks an element with the given label deleted, does NOT really change the current graph.
+         * @param label
+         */
+        void markDelete(labeltype label)
+        {
+            has_deletions_=true;
+            auto search = label_lookup_.find(label);
+            if (search == label_lookup_.end()) {
+                throw std::runtime_error("Label not found");
+            }
+            markDeletedInternal(search->second);
+        }
 
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-        searchBaseLayer(tableint ep_id, const void *data_point, int layer) {
+        /**
+         * Uses the first 8 bits of the memory for the linked list to store the mark,
+         * whereas maxM0_ has to be limited to the lower 24 bits, however, still large enough in almost all cases.
+         * @param internalId
+         */
+        void markDeletedInternal(tableint internalId) {
+            unsigned char *ll_cur = ((unsigned char *)get_linklist0(internalId))+2;
+            *ll_cur |= DELETE_MARK;
+        }
+
+        /**
+         * Remove the deleted mark of the node.
+         * @param internalId
+         */
+        void unmarkDeletedInternal(tableint internalId) {
+            unsigned char *ll_cur = ((unsigned char *)get_linklist0(internalId))+2;
+            *ll_cur &= ~DELETE_MARK;
+        }
+
+        /**
+         * Checks the first 8 bits of the memory to see if the element is marked deleted.
+         * @param internalId
+         * @return
+         */
+        bool isMarkedDeleted(tableint internalId) const {
+            unsigned char *ll_cur = ((unsigned char*)get_linklist0(internalId))+2;
+            return *ll_cur & DELETE_MARK;
+        }
+
+        std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst>
+        searchBaseLayer(tableint ep_id, std::shared_ptr<VectorIndex> p_index, const void *data_point, int layer) {
             VisitedList *vl = visited_list_pool_->getFreeVisitedList();
             vl_type *visited_array = vl->mass;
             vl_type visited_array_tag = vl->curV;
 
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidateSet;
+            std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> top_candidates;
+            std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> candidateSet;
 
-            dist_t lowerBound;
+            float lowerBound;
             if (!isMarkedDeleted(ep_id)) {
-                dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
+                float dist = p_index->ComputeDistance(data_point, getDataByInternalId(ep_id));
                 top_candidates.emplace(dist, ep_id);
                 lowerBound = dist;
                 candidateSet.emplace(-dist, ep_id);
             } else {
-                lowerBound = std::numeric_limits<dist_t>::max();
+                lowerBound = std::numeric_limits<float>::max();
                 candidateSet.emplace(-lowerBound, ep_id);
             }
             visited_array[ep_id] = visited_array_tag;
 
             while (!candidateSet.empty()) {
-                std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
+                std::pair<float, tableint> curr_el_pair = candidateSet.top();
                 if ((-curr_el_pair.first) > lowerBound) {
                     break;
                 }
@@ -255,7 +343,7 @@ namespace hnswlib {
                     visited_array[candidate_id] = visited_array_tag;
                     char *currObj1 = (getDataByInternalId(candidate_id));
 
-                    dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
+                    float dist1 = p_index->ComputeDistance(data_point, currObj1);
                     if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
                         candidateSet.emplace(-dist1, candidate_id);
 #ifdef USE_SSE
@@ -281,200 +369,16 @@ namespace hnswlib {
         mutable std::atomic<long> metric_distance_computations;
         mutable std::atomic<long> metric_hops;
         mutable std::atomic<long> metric_hops_L;
-#if PROFILE
-        // mutable std::atomic<float> time_PDC;
-        // mutable std::atomic<float> time_sort;
-        mutable double time_PDC;
-        mutable double time_sort;
-#endif
-        // mutable std::atomic<long> hits_pre_comput;
 
-        template <bool has_deletions, bool collect_metrics=false>
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-        searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef) const {
-#if PROFILE
-            clk_get stop_search = clk_get();
-#endif
-            VisitedList *vl = visited_list_pool_->getFreeVisitedList();
-            vl_type *visited_array = vl->mass;
-            vl_type visited_array_tag = vl->curV;
-
-#if REPLACEQ
-            PriorityQueue top_candidates(ef);
-            PriorityQueue candidate_set(ef * 20, true);
-
-#if MEMTRACE
-            main_mem->mem_offest_hw["search_queue"] = main_mem->mem_offest_hw["result_queue"] +
-                                ceil((float) ef * (sizeof(dist_t) + sizeof(tableint)) / MEM_ALIGNED) * MEM_ALIGNED;
-
-            top_candidates.initMem(main_mem, main_mem->mem_offest_hw["result_queue"]);
-            candidate_set.initMem(main_mem, main_mem->mem_offest_hw["search_queue"]);
-#endif
-
-#else
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
-#endif
-
-            dist_t lowerBound;
-            if (!has_deletions || !isMarkedDeleted(ep_id)) {
-                dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
-                lowerBound = dist;
-                top_candidates.emplace(dist, ep_id);
-                candidate_set.emplace(-dist, ep_id);
-            } else {
-                lowerBound = std::numeric_limits<dist_t>::max();
-                candidate_set.emplace(-lowerBound, ep_id);
-            }
-
-            visited_array[ep_id] = visited_array_tag;
-
-#if MEMTRACE
-            main_mem->mem_offest_sw["query_data"] = (long long) data_point;
-            main_mem->mem_offest_sw["visited_list"] = (long long) visited_array;
-
-            main_mem->add_trace((char *)data_point, (char *)data_point + data_size_,
-                                "query_data", 'l');
-            main_mem->add_trace(getDataByInternalId(ep_id), getDataByInternalId(ep_id) + data_size_,
-                                "data_level0", 'l');
-            main_mem->add_trace((char *)(visited_array + ep_id), (char *)(visited_array + ep_id + 1),
-                                "visited_list", 'l');
-            main_mem->add_trace((char *)(visited_array + ep_id), (char *)(visited_array + ep_id + 1),
-                                "visited_list", 's');
-#endif
-            // tableint cache_id = std::numeric_limits<tableint>::max();
-
-            while (!candidate_set.empty()) {
-
-                std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
-
-                if ((-current_node_pair.first) > lowerBound) {
-                    break;
-                }
-                candidate_set.pop();
-
-                tableint current_node_id = current_node_pair.second;
-                int *data = (int *) get_linklist0(current_node_id);
-                size_t size = getListCount((linklistsizeint*)data);
-//                bool cur_node_deleted = isMarkedDeleted(current_node_id);
-                if(collect_metrics){
-                    metric_hops++;
-                    // metric_distance_computations+=size;
-                }
-
-                // if (cache_id == current_node_id)
-                //     hits_pre_comput++;
-                // if (!candidate_set.empty())
-                //     cache_id = candidate_set.top().second;
-#if (!MEMTRACE)
-#ifdef USE_SSE
-                // _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
-                // _mm_prefetch((char *) (visited_array + *(data + 1) + 64), _MM_HINT_T0);
-                // _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
-                // _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
-#endif
-#endif
-
-                for (size_t j = 1; j <= size; j++) {
-                    int candidate_id = *(data + j);
-//                    if (candidate_id == 0) continue;
-#if (!MEMTRACE)
-#ifdef USE_SSE
-                    // _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
-                    // _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
-                    //              _MM_HINT_T0);////////////
-#endif
-#endif
-
-#if MEMTRACE
-                    main_mem->add_trace((char *)(visited_array + candidate_id), (char *)(visited_array + candidate_id + 1),
-                                        "visited_list", 'l');
-#endif
-
-                    if (!(visited_array[candidate_id] == visited_array_tag)) {
-                        metric_distance_computations++;
-
-                        visited_array[candidate_id] = visited_array_tag;
-#if PROFILE
-                        stop_search.reset();
-#endif
-
-                        char *currObj1 = (getDataByInternalId(candidate_id));
-                        dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
-
-#if MEMTRACE
-                        main_mem->add_trace((char *)(visited_array + candidate_id), (char *)(visited_array + candidate_id + 1),
-                                            "visited_list", 's');
-                        main_mem->add_trace((char *)data_point, (char *)data_point + data_size_,
-                                            "query_data", 'l');
-                        main_mem->add_trace(currObj1, currObj1 + data_size_,
-                                            "data_level0", 'l');
-#endif
-
-#if PROFILE
-                        time_PDC += stop_search.getElapsedTimeus();
-#endif
-
-                        if (top_candidates.size() < ef || lowerBound > dist) {
-#if PROFILE
-                            stop_search.reset();
-#endif
-                            candidate_set.emplace(-dist, candidate_id);
-
-#if (!MEMTRACE)
-#ifdef USE_SSE
-                            // _mm_prefetch(data_level0_memory_ + candidate_set.top().second * size_data_per_element_ +
-                            //              offsetLevel0_,///////////
-                            //              _MM_HINT_T0);////////////////////////
-#endif
-#endif
-
-                            if (!has_deletions || !isMarkedDeleted(candidate_id))
-                                top_candidates.emplace(dist, candidate_id);
-
-                            if (top_candidates.size() > ef)
-                                top_candidates.pop();
-#if PROFILE
-                            time_sort += stop_search.getElapsedTimeus();
-#endif
-                            if (!top_candidates.empty())
-                                lowerBound = top_candidates.top().first;
-                        }
-                    }
-                }
-            }
-
-            visited_list_pool_->releaseVisitedList(vl);
-
-            // while (!top_candidates.empty()){
-            //     std::cout << top_candidates.top().first << "\t" << top_candidates.top().second << std::endl;
-            //     top_candidates.pop();
-            // }
-            // exit(0);
-
-#if REPLACEQ
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates_cp;
-            while (!top_candidates.empty()){
-                top_candidates_cp.emplace(top_candidates.top());
-                top_candidates.pop();
-            }
-            // candidate_set.~PriorityQueue();
-            // top_candidates.~PriorityQueue();
-            return top_candidates_cp;
-#else
-            return top_candidates;
-#endif
-        }
-
-        void getNeighborsByHeuristic2(
-                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
+        void getNeighborsByHeuristic2(std::shared_ptr<VectorIndex> p_index,
+                std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> &top_candidates,
         const size_t M) {
             if (top_candidates.size() < M) {
                 return;
             }
 
-            std::priority_queue<std::pair<dist_t, tableint>> queue_closest;
-            std::vector<std::pair<dist_t, tableint>> return_list;
+            std::priority_queue<std::pair<float, tableint>> queue_closest;
+            std::vector<std::pair<float, tableint>> return_list;
             while (top_candidates.size() > 0) {
                 queue_closest.emplace(-top_candidates.top().first, top_candidates.top().second);
                 top_candidates.pop();
@@ -483,16 +387,15 @@ namespace hnswlib {
             while (queue_closest.size()) {
                 if (return_list.size() >= M)
                     break;
-                std::pair<dist_t, tableint> curent_pair = queue_closest.top();
-                dist_t dist_to_query = -curent_pair.first;
+                std::pair<float, tableint> curent_pair = queue_closest.top();
+                float dist_to_query = -curent_pair.first;
                 queue_closest.pop();
                 bool good = true;
 
-                for (std::pair<dist_t, tableint> second_pair : return_list) {
-                    dist_t curdist =
-                            fstdistfunc_(getDataByInternalId(second_pair.second),
-                                         getDataByInternalId(curent_pair.second),
-                                         dist_func_param_);;
+                for (std::pair<float, tableint> second_pair : return_list) {
+                    float curdist =
+                            p_index->ComputeDistance(getDataByInternalId(second_pair.second),
+                                         getDataByInternalId(curent_pair.second));
                     if (curdist < dist_to_query) {
                         good = false;
                         break;
@@ -503,7 +406,7 @@ namespace hnswlib {
                 }
             }
 
-            for (std::pair<dist_t, tableint> curent_pair : return_list) {
+            for (std::pair<float, tableint> curent_pair : return_list) {
                 top_candidates.emplace(-curent_pair.first, curent_pair.second);
             }
         }
@@ -525,11 +428,11 @@ namespace hnswlib {
             return level == 0 ? get_linklist0(internal_id) : get_linklist(internal_id, level);
         };
 
-        tableint mutuallyConnectNewElement(const void *data_point, tableint cur_c,
-                                       std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
+        tableint mutuallyConnectNewElement(const void *data_point, tableint cur_c, std::shared_ptr<VectorIndex> p_index,
+                                       std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> &top_candidates,
         int level, bool isUpdate) {
             size_t Mcurmax = level ? maxM_ : maxM0_;
-            getNeighborsByHeuristic2(top_candidates, M_);
+            getNeighborsByHeuristic2(p_index, top_candidates, M_);
             if (top_candidates.size() > M_)
                 throw std::runtime_error("Should be not be more than M_ candidates returned by the heuristic");
 
@@ -603,19 +506,17 @@ namespace hnswlib {
                         setListCount(ll_other, sz_link_list_other + 1);
                     } else {
                         // finding the "weakest" element to replace it with the new one
-                        dist_t d_max = fstdistfunc_(getDataByInternalId(cur_c), getDataByInternalId(selectedNeighbors[idx]),
-                                                    dist_func_param_);
+                        float d_max = p_index->ComputeDistance(getDataByInternalId(cur_c), getDataByInternalId(selectedNeighbors[idx]));
                         // Heuristic:
-                        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
+                        std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> candidates;
                         candidates.emplace(d_max, cur_c);
 
                         for (size_t j = 0; j < sz_link_list_other; j++) {
                             candidates.emplace(
-                                    fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(selectedNeighbors[idx]),
-                                                 dist_func_param_), data[j]);
+                                    p_index->ComputeDistance(getDataByInternalId(data[j]), getDataByInternalId(selectedNeighbors[idx])), data[j]);
                         }
 
-                        getNeighborsByHeuristic2(candidates, Mcurmax);
+                        getNeighborsByHeuristic2(p_index, candidates, Mcurmax);
 
                         int indx = 0;
                         while (candidates.size() > 0) {
@@ -628,7 +529,7 @@ namespace hnswlib {
                         // Nearest K:
                         /*int indx = -1;
                         for (int j = 0; j < sz_link_list_other; j++) {
-                            dist_t d = fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(rez[idx]), dist_func_param_);
+                            float d = p_index->ComputeDistance(getDataByInternalId(data[j]), getDataByInternalId(rez[idx]));
                             if (d > d_max) {
                                 indx = j;
                                 d_max = d;
@@ -645,58 +546,11 @@ namespace hnswlib {
         }
 
         std::mutex global;
-        size_t ef_;
+        size_t ef_ = 1024;
 
         void setEf(size_t ef) {
             ef_ = ef;
         }
-
-
-        std::priority_queue<std::pair<dist_t, tableint>> searchKnnInternal(void *query_data, int k) {
-            std::priority_queue<std::pair<dist_t, tableint  >> top_candidates;
-            if (cur_element_count == 0) return top_candidates;
-            tableint currObj = enterpoint_node_;
-            dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
-
-            for (size_t level = maxlevel_; level > 0; level--) {
-                bool changed = true;
-                while (changed) {
-                    changed = false;
-                    int *data;
-                    data = (int *) get_linklist(currObj,level);
-                    int size = getListCount(data);
-                    tableint *datal = (tableint *) (data + 1);
-                    for (int i = 0; i < size; i++) {
-                        tableint cand = datal[i];
-                        if (cand < 0 || cand > max_elements_)
-                            throw std::runtime_error("cand error");
-                        dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
-
-                        if (d < curdist) {
-                            curdist = d;
-                            currObj = cand;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            if (has_deletions_) {
-                std::priority_queue<std::pair<dist_t, tableint  >> top_candidates1=searchBaseLayerST<true>(currObj, query_data,
-                                                                                                           ef_);
-                top_candidates.swap(top_candidates1);
-            }
-            else{
-                std::priority_queue<std::pair<dist_t, tableint  >> top_candidates1=searchBaseLayerST<false>(currObj, query_data,
-                                                                                                            ef_);
-                top_candidates.swap(top_candidates1);
-            }
-
-            while (top_candidates.size() > k) {
-                top_candidates.pop();
-            }
-            return top_candidates;
-        };
 
         void resizeIndex(size_t new_max_elements){
             if (new_max_elements<cur_element_count)
@@ -744,6 +598,7 @@ namespace hnswlib {
             writeBinaryPOD(output, M_);
             writeBinaryPOD(output, mult_);
             writeBinaryPOD(output, ef_construction_);
+            writeBinaryPOD(output, vecdim);
 
             output.write(data_level0_memory_, cur_element_count * size_data_per_element_);
 
@@ -756,7 +611,7 @@ namespace hnswlib {
             output.close();
         }
 
-        void loadIndex(const std::string &location, SpaceInterface<dist_t> *s, size_t max_elements_i=0) {
+        void loadIndex(const std::string &location, size_t max_elements_i=0) {
 
 
             std::ifstream input(location, std::ios::binary);
@@ -788,14 +643,9 @@ namespace hnswlib {
             readBinaryPOD(input, M_);
             readBinaryPOD(input, mult_);
             readBinaryPOD(input, ef_construction_);
-
-
-            data_size_ = s->get_data_size();
-            fstdistfunc_ = s->get_dist_func();
-            dist_func_param_ = s->get_dist_func_param();
+            readBinaryPOD(input, vecdim);
 
             auto pos=input.tellg();
-
 
             /// Optional - check if index is ok:
 
@@ -822,25 +672,18 @@ namespace hnswlib {
 
             input.seekg(pos,input.beg);
 
-
             data_level0_memory_ = (char *) malloc(max_elements * size_data_per_element_);
             if (data_level0_memory_ == nullptr)
                 throw std::runtime_error("Not enough memory: loadIndex failed to allocate level0");
             input.read(data_level0_memory_, cur_element_count * size_data_per_element_);
 
-
-
-
             size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
-
 
             size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
             std::vector<std::mutex>(max_elements).swap(link_list_locks_);
             std::vector<std::mutex>(max_update_element_locks).swap(link_list_update_locks_);
 
-
             visited_list_pool_ = new VisitedListPool(1, max_elements);
-
 
             linkLists_ = (char **) malloc(sizeof(void *) * max_elements);
             if (linkLists_ == nullptr)
@@ -877,72 +720,6 @@ namespace hnswlib {
             return;
         }
 
-        template<typename data_t>
-        std::vector<data_t> getDataByLabel(labeltype label)
-        {
-            tableint label_c;
-            auto search = label_lookup_.find(label);
-            if (search == label_lookup_.end() || isMarkedDeleted(search->second)) {
-                throw std::runtime_error("Label not found");
-            }
-            label_c = search->second;
-
-            char* data_ptrv = getDataByInternalId(label_c);
-            size_t dim = *((size_t *) dist_func_param_);
-            std::vector<data_t> data;
-            data_t* data_ptr = (data_t*) data_ptrv;
-            for (int i = 0; i < dim; i++) {
-                data.push_back(*data_ptr);
-                data_ptr += 1;
-            }
-            return data;
-        }
-
-        static const unsigned char DELETE_MARK = 0x01;
-//        static const unsigned char REUSE_MARK = 0x10;
-        /**
-         * Marks an element with the given label deleted, does NOT really change the current graph.
-         * @param label
-         */
-        void markDelete(labeltype label)
-        {
-            has_deletions_=true;
-            auto search = label_lookup_.find(label);
-            if (search == label_lookup_.end()) {
-                throw std::runtime_error("Label not found");
-            }
-            markDeletedInternal(search->second);
-        }
-
-        /**
-         * Uses the first 8 bits of the memory for the linked list to store the mark,
-         * whereas maxM0_ has to be limited to the lower 24 bits, however, still large enough in almost all cases.
-         * @param internalId
-         */
-        void markDeletedInternal(tableint internalId) {
-            unsigned char *ll_cur = ((unsigned char *)get_linklist0(internalId))+2;
-            *ll_cur |= DELETE_MARK;
-        }
-
-        /**
-         * Remove the deleted mark of the node.
-         * @param internalId
-         */
-        void unmarkDeletedInternal(tableint internalId) {
-            unsigned char *ll_cur = ((unsigned char *)get_linklist0(internalId))+2;
-            *ll_cur &= ~DELETE_MARK;
-        }
-
-        /**
-         * Checks the first 8 bits of the memory to see if the element is marked deleted.
-         * @param internalId
-         * @return
-         */
-        bool isMarkedDeleted(tableint internalId) const {
-            unsigned char *ll_cur = ((unsigned char*)get_linklist0(internalId))+2;
-            return *ll_cur & DELETE_MARK;
-        }
-
         unsigned short int getListCount(linklistsizeint * ptr) const {
             return *((unsigned short int *)ptr);
         }
@@ -951,161 +728,11 @@ namespace hnswlib {
             *((unsigned short int*)(ptr))=*((unsigned short int *)&size);
         }
 
-        void addPoint(const void *data_point, labeltype label) {
-            addPoint(data_point, label,-1);
+        void addPoint(const void *data_point, std::shared_ptr<VectorIndex> p_index, labeltype label) {
+            addPoint(data_point, p_index, label,-1);
         }
 
-        void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
-            // update the feature vector associated with existing point with new vector
-            memcpy(getDataByInternalId(internalId), dataPoint, data_size_);
-
-            int maxLevelCopy = maxlevel_;
-            tableint entryPointCopy = enterpoint_node_;
-            // If point to be updated is entry point and graph just contains single element then just return.
-            if (entryPointCopy == internalId && cur_element_count == 1)
-                return;
-
-            int elemLevel = element_levels_[internalId];
-            std::uniform_real_distribution<float> distribution(0.0, 1.0);
-            for (int layer = 0; layer <= elemLevel; layer++) {
-                std::unordered_set<tableint> sCand;
-                std::unordered_set<tableint> sNeigh;
-                std::vector<tableint> listOneHop = getConnectionsWithLock(internalId, layer);
-                if (listOneHop.size() == 0)
-                    continue;
-
-                sCand.insert(internalId);
-
-                for (auto&& elOneHop : listOneHop) {
-                    sCand.insert(elOneHop);
-
-                    if (distribution(update_probability_generator_) > updateNeighborProbability)
-                        continue;
-
-                    sNeigh.insert(elOneHop);
-
-                    std::vector<tableint> listTwoHop = getConnectionsWithLock(elOneHop, layer);
-                    for (auto&& elTwoHop : listTwoHop) {
-                        sCand.insert(elTwoHop);
-                    }
-                }
-
-                for (auto&& neigh : sNeigh) {
-//                    if (neigh == internalId)
-//                        continue;
-
-                    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
-                    size_t size = sCand.find(neigh) == sCand.end() ? sCand.size() : sCand.size() - 1; // sCand guaranteed to have size >= 1
-                    size_t elementsToKeep = std::min(ef_construction_, size);
-                    for (auto&& cand : sCand) {
-                        if (cand == neigh)
-                            continue;
-
-                        dist_t distance = fstdistfunc_(getDataByInternalId(neigh), getDataByInternalId(cand), dist_func_param_);
-                        if (candidates.size() < elementsToKeep) {
-                            candidates.emplace(distance, cand);
-                        } else {
-                            if (distance < candidates.top().first) {
-                                candidates.pop();
-                                candidates.emplace(distance, cand);
-                            }
-                        }
-                    }
-
-                    // Retrieve neighbours using heuristic and set connections.
-                    getNeighborsByHeuristic2(candidates, layer == 0 ? maxM0_ : maxM_);
-
-                    {
-                        std::unique_lock <std::mutex> lock(link_list_locks_[neigh]);
-                        linklistsizeint *ll_cur;
-                        ll_cur = get_linklist_at_level(neigh, layer);
-                        size_t candSize = candidates.size();
-                        setListCount(ll_cur, candSize);
-                        tableint *data = (tableint *) (ll_cur + 1);
-                        for (size_t idx = 0; idx < candSize; idx++) {
-                            data[idx] = candidates.top().second;
-                            candidates.pop();
-                        }
-                    }
-                }
-            }
-
-            repairConnectionsForUpdate(dataPoint, entryPointCopy, internalId, elemLevel, maxLevelCopy);
-        };
-
-        void repairConnectionsForUpdate(const void *dataPoint, tableint entryPointInternalId, tableint dataPointInternalId, int dataPointLevel, int maxLevel) {
-            tableint currObj = entryPointInternalId;
-            if (dataPointLevel < maxLevel) {
-                dist_t curdist = fstdistfunc_(dataPoint, getDataByInternalId(currObj), dist_func_param_);
-                for (int level = maxLevel; level > dataPointLevel; level--) {
-                    bool changed = true;
-                    while (changed) {
-                        changed = false;
-                        unsigned int *data;
-                        std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
-                        data = get_linklist_at_level(currObj,level);
-                        int size = getListCount(data);
-                        tableint *datal = (tableint *) (data + 1);
-#ifdef USE_SSE
-                        _mm_prefetch(getDataByInternalId(*datal), _MM_HINT_T0);
-#endif
-                        for (int i = 0; i < size; i++) {
-#ifdef USE_SSE
-                            _mm_prefetch(getDataByInternalId(*(datal + i + 1)), _MM_HINT_T0);
-#endif
-                            tableint cand = datal[i];
-                            dist_t d = fstdistfunc_(dataPoint, getDataByInternalId(cand), dist_func_param_);
-                            if (d < curdist) {
-                                curdist = d;
-                                currObj = cand;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (dataPointLevel > maxLevel)
-                throw std::runtime_error("Level of item to be updated cannot be bigger than max level");
-
-            for (int level = dataPointLevel; level >= 0; level--) {
-                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> topCandidates = searchBaseLayer(
-                        currObj, dataPoint, level);
-
-                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> filteredTopCandidates;
-                while (topCandidates.size() > 0) {
-                    if (topCandidates.top().second != dataPointInternalId)
-                        filteredTopCandidates.push(topCandidates.top());
-
-                    topCandidates.pop();
-                }
-
-                // Since element_levels_ is being used to get `dataPointLevel`, there could be cases where `topCandidates` could just contains entry point itself.
-                // To prevent self loops, the `topCandidates` is filtered and thus can be empty.
-                if (filteredTopCandidates.size() > 0) {
-                    bool epDeleted = isMarkedDeleted(entryPointInternalId);
-                    if (epDeleted) {
-                        filteredTopCandidates.emplace(fstdistfunc_(dataPoint, getDataByInternalId(entryPointInternalId), dist_func_param_), entryPointInternalId);
-                        if (filteredTopCandidates.size() > ef_construction_)
-                            filteredTopCandidates.pop();
-                    }
-
-                    currObj = mutuallyConnectNewElement(dataPoint, dataPointInternalId, filteredTopCandidates, level, true);
-                }
-            }
-        }
-
-        std::vector<tableint> getConnectionsWithLock(tableint internalId, int level) {
-            std::unique_lock <std::mutex> lock(link_list_locks_[internalId]);
-            unsigned int *data = get_linklist_at_level(internalId, level);
-            int size = getListCount(data);
-            std::vector<tableint> result(size);
-            tableint *ll = (tableint *) (data + 1);
-            memcpy(result.data(), ll,size * sizeof(tableint));
-            return result;
-        };
-
-        tableint addPoint(const void *data_point, labeltype label, int level) {
+        tableint addPoint(const void *data_point, std::shared_ptr<VectorIndex> p_index, labeltype label, int level) {
 
             tableint cur_c = 0;
             {
@@ -1122,7 +749,9 @@ namespace hnswlib {
                     if (isMarkedDeleted(existingInternalId)) {
                         unmarkDeletedInternal(existingInternalId);
                     }
-                    updatePoint(data_point, existingInternalId, 1.0);
+                    // updatePoint(data_point, existingInternalId, 1.0);
+                    printf("Unsupport updatePoint\n");
+                    exit(1);
 
                     return existingInternalId;
                 }
@@ -1176,7 +805,7 @@ namespace hnswlib {
 
                 if (curlevel < maxlevelcopy) {
 
-                    dist_t curdist = fstdistfunc_(data_point, getDataByInternalId(currObj), dist_func_param_);
+                    float curdist = p_index->ComputeDistance(data_point, getDataByInternalId(currObj));
                     for (int level = maxlevelcopy; level > curlevel; level--) {
 
 
@@ -1193,7 +822,7 @@ namespace hnswlib {
                                 tableint cand = datal[i];
                                 if (cand < 0 || cand > max_elements_)
                                     throw std::runtime_error("cand error");
-                                dist_t d = fstdistfunc_(data_point, getDataByInternalId(cand), dist_func_param_);
+                                float d = p_index->ComputeDistance(data_point, getDataByInternalId(cand));
                                 if (d < curdist) {
                                     curdist = d;
                                     currObj = cand;
@@ -1209,14 +838,14 @@ namespace hnswlib {
                     if (level > maxlevelcopy || level < 0)  // possible?
                         throw std::runtime_error("Level error");
 
-                    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayer(
-                            currObj, data_point, level);
+                    std::priority_queue<std::pair<float, tableint>, std::vector<std::pair<float, tableint>>, CompareByFirst> top_candidates = searchBaseLayer(
+                            currObj, p_index, data_point, level);
                     if (epDeleted) {
-                        top_candidates.emplace(fstdistfunc_(data_point, getDataByInternalId(enterpoint_copy), dist_func_param_), enterpoint_copy);
+                        top_candidates.emplace(p_index->ComputeDistance(data_point, getDataByInternalId(enterpoint_copy)), enterpoint_copy);
                         if (top_candidates.size() > ef_construction_)
                             top_candidates.pop();
                     }
-                    currObj = mutuallyConnectNewElement(data_point, cur_c, top_candidates, level, false);
+                    currObj = mutuallyConnectNewElement(data_point, cur_c, p_index, top_candidates, level, false);
                 }
 
 
@@ -1235,77 +864,17 @@ namespace hnswlib {
             return cur_c;
         };
 
-        std::priority_queue<std::pair<dist_t, labeltype >>
-        searchKnn(const void *query_data, size_t k) const {
-            std::priority_queue<std::pair<dist_t, labeltype >> result;
-            if (cur_element_count == 0) return result;
-
-            tableint currObj = enterpoint_node_;
-            dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
-
-            for (int level = maxlevel_; level > 0; level--) {
-#if PLATG
-                printf("Error, current graph is plat\n");
-                exit(1);
-#endif
-                bool changed = true;
-                while (changed) {
-                    changed = false;
-                    unsigned int *data;
-
-                    data = (unsigned int *) get_linklist(currObj, level);
-                    int size = getListCount(data);
-                    metric_hops_L++;
-                    metric_distance_computations+=size;
-
-                    tableint *datal = (tableint *) (data + 1);
-                    for (int i = 0; i < size; i++) {
-                        tableint cand = datal[i];
-                        if (cand < 0 || cand > max_elements_)
-                            throw std::runtime_error("cand error");
-                        dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
-
-                        if (d < curdist) {
-                            curdist = d;
-                            currObj = cand;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-            if (has_deletions_) {
-                top_candidates=searchBaseLayerST<true,true>(
-                        currObj, query_data, std::max(ef_, k));
-            }
-            else{
-                top_candidates=searchBaseLayerST<false,true>(
-                        currObj, query_data, std::max(ef_, k));
-            }
-
-            while (top_candidates.size() > k) {
-                top_candidates.pop();
-            }
-            while (top_candidates.size() > 0) {
-                std::pair<dist_t, tableint> rez = top_candidates.top();
-                result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
-                top_candidates.pop();
-            }
-            return result;
-        };
-
 
         /*
             using one queue to search
         */
         struct Neighbor {
             tableint id;
-            dist_t distance;
+            float distance;
             bool flag;
 
             Neighbor() = default;
-            Neighbor(unsigned id, float distance, bool f) : id{id}, distance{distance}, flag(f) {}
+            Neighbor(tableint id, float distance, bool f) : id{id}, distance{distance}, flag(f) {}
 
             inline bool operator<(const Neighbor &other) const {
                 return distance < other.distance;
@@ -1387,7 +956,7 @@ namespace hnswlib {
             }
 
             // 每个rank的起始点，暂时采用中心点
-            size_t vecdim = *(size_t *)(dist_func_param_);
+            // size_t vecdim = *(size_t *)(dist_func_param_);
             float* mass_comput = new float[num_max_rank * vecdim]();
             for (int i = 0; i < num_ranks; i++){
                 unsigned rank_size = rankId_to_interId[i].size();
@@ -1421,14 +990,10 @@ namespace hnswlib {
             input: query, k
             output: result
         */
-        std::priority_queue<std::pair<dist_t, labeltype >>
-        searchParaRank(const void *query_data, size_t K) const {
-
-            std::priority_queue<std::pair<dist_t, labeltype >> result;
-            if (cur_element_count == 0) return result;
-
+        void searchParaRank(QueryResult& p_results, std::shared_ptr<VectorIndex> p_index, int K) const {
             // 相关参数
-            size_t l_search = std::max(ef_, K);
+            // size_t l_search = std::max(ef_, (size_t)K);
+            size_t l_search = (size_t)K * 2;
             size_t num_ranks = NUM_RANKS;
 
             // HLC level
@@ -1447,16 +1012,16 @@ namespace hnswlib {
                 buffer_rank_alloc[i].first = 0;
                 buffer_rank_alloc[i].second = mem_rank_alloc + i * maxM0_;
             }
-            std::vector<std::stack<std::pair<dist_t, tableint>>> buffer_rank_gather(num_ranks);
+            std::vector<std::stack<std::pair<float, tableint>>> buffer_rank_gather(num_ranks);
 
             // 本轮搜索的邻居list信息
             std::pair<size_t, int*> candidate_neighbors;
 
             // launch stage
-            clk_get clk_query = clk_get();
+            Timer clk_query = Timer();
             for (int i = 0; i < num_ranks; i++){
                 tableint currObj = ept_rank[i];
-                dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
+                float curdist = p_index->ComputeDistance(p_results.GetTarget(), getDataByInternalId(currObj));
 
                 buffer_rank_gather[i].push(std::make_pair(curdist, currObj));
             }
@@ -1469,7 +1034,7 @@ namespace hnswlib {
 
             for (int i = 0; i < num_ranks; i++){
                 tableint currObj = buffer_rank_gather[i].top().second;
-                dist_t curdist = buffer_rank_gather[i].top().first;
+                float curdist = buffer_rank_gather[i].top().first;
                 buffer_rank_gather[i].pop();
                 visited_array[currObj] = visited_array_tag;
 
@@ -1532,7 +1097,7 @@ namespace hnswlib {
                         for (int j = 0; j < buffer_rank_alloc[i].first; j++) {
                             tableint currObj = buffer_rank_alloc[i].second[j];
 
-                            dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
+                            float curdist = p_index->ComputeDistance(p_results.GetTarget(), getDataByInternalId(currObj));
                             buffer_rank_gather[i].push(std::make_pair(curdist, currObj));
                         }
                         buffer_rank_alloc[i].first = 0;
@@ -1545,7 +1110,7 @@ namespace hnswlib {
 
                     for (int i = 0; i < num_ranks; i++){
                         while (!buffer_rank_gather[i].empty()){
-                            dist_t dist = buffer_rank_gather[i].top().first;
+                            float dist = buffer_rank_gather[i].top().first;
                             tableint candidate_id = buffer_rank_gather[i].top().second;
                             buffer_rank_gather[i].pop();
                             if (dist >= retset[cur_list_size - 1].distance && (cur_list_size == l_search))
@@ -1568,16 +1133,12 @@ namespace hnswlib {
 
             delete[] mem_rank_alloc;
             visited_list_pool_->releaseVisitedList(vl);
-            for (int i = 0; i < K; i++)
-                result.push(std::pair<dist_t, labeltype>(retset[i].distance,
-                            getExternalLabel(retset[i].id)));
-
-            return result;
+            for (int i = 0; i < K; i++) {
+                p_results.SetResult(i, (int32_t)getExternalLabel(retset[i].id), retset[i].distance);
+            }
         };
 
 #endif
-
-
 
         void checkIntegrity(){
             int connections_checked=0;

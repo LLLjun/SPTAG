@@ -81,8 +81,14 @@ namespace SPTAG
             m_index->UpdateIndex();
             m_index->SetReady(true);
 
-            m_extraSearcher.reset(new ExtraFullGraphSearcher<T>());
+            m_extraSearcher.reset(new ExtraFullGraphSearcher<T>());                         // here
             if (!m_extraSearcher->LoadIndex(m_options)) return ErrorCode::Fail;
+
+#if HNSWINDEX
+            std::string path_hnsw = m_options.m_indexDirectory + FolderSep + m_options.m_headIndexFolder + FolderSep + m_options.m_hnswIndex;
+            m_hnsw.reset(new hnswlib::HierarchicalNSW<T>(path_hnsw, false));
+            m_hnsw->initRankMap();
+#endif
 
             m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
             IOBINARY(p_indexStreams.back(), ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
@@ -159,9 +165,13 @@ namespace SPTAG
             SearchStats* pp_stats = (SearchStats *)p_stats;
 
             auto startTime = std::chrono::high_resolution_clock::now();
-            m_index->SearchIndex(p_query);
+            
             // HNSW search
-            // Todo: HNSW index
+#if HNSWINDEX
+            m_hnsw->searchParaRank(p_query, m_index, p_query.GetResultNum());
+#else
+            m_index->SearchIndex(p_query);
+#endif
 
             COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
             std::shared_ptr<ExtraWorkSpace> workSpace = nullptr;
@@ -572,6 +582,64 @@ namespace SPTAG
             double buildHeadTime = std::chrono::duration_cast<std::chrono::seconds>(t3 - t2).count();
             LOG(Helper::LogLevel::LL_Info, "select head time: %.2lfs build head time: %.2lfs\n", selectHeadTime, buildHeadTime);
 
+#if HNSWINDEX
+            size_t vecsize = (size_t) m_index->GetNumSamples();
+            size_t vecdim = (size_t) m_index->GetFeatureDim();
+            printf("[hnsw] vecsize: %lu, vecdim: %lu \n", vecsize, vecdim);
+
+            size_t M = 20;
+            size_t efConstruction = M * 10;
+            std::string path_data = m_options.m_indexDirectory + FolderSep + m_options.m_headVectorFile;
+            std::string path_hnsw = m_options.m_indexDirectory + FolderSep + m_options.m_headIndexFolder + FolderSep + m_options.m_hnswIndex;;
+
+            m_hnsw.reset(new hnswlib::HierarchicalNSW<T>(vecsize, vecdim, M, efConstruction));
+
+            printf("[hnsw] Loading base data:\n");
+            T* massB = new T[vecsize * vecdim]();
+            LoadBinToArray<T>(path_data, massB, vecsize, vecdim);
+
+#if PLATG
+            unsigned center_id = compArrayCenter<T>(massB, vecsize, vecdim);
+            m_hnsw->addPoint((void *) (massB + center_id * vecdim), m_index, (size_t) center_id);
+#else
+            m_hnsw->addPoint((void *) (massB), m_index, (size_t) 0);
+#endif
+            printf("[hnsw] Building index:\n");
+            int j1 = 0;
+            Timer timer = Timer();
+            Timer timer_full = Timer();
+            size_t report_every = vecsize / 10;
+
+            omp_set_num_threads(m_options.m_iSelectHeadNumberOfThreads);
+#pragma omp parallel for
+            for (size_t i = 1; i < vecsize; i++) {
+#pragma omp critical
+                {
+                    j1++;
+                    if (j1 % report_every == 0) {
+                        std::cout << j1 / (0.01 * vecsize) << " %, "
+                             << report_every / (1000.0 * timer.getElapsedTimes()) << " kips \n";
+                        timer.reset();
+                    }
+                }
+#if PLATG
+                size_t ic;
+                if (i <= center_id)
+                    ic = i - 1;
+                else
+                    ic = i;
+                m_hnsw->addPoint((void *) (massB + ic * vecdim), m_index, ic);
+#else
+                m_hnsw->addPoint((void *) (massB + i * vecdim), m_index, i);
+#endif
+            }
+            printf("[hnsw] Build time: %.1f seconds\n", timer_full.getElapsedTimes());
+            delete[] massB;
+            m_hnsw->saveIndex(path_hnsw);
+
+            printf("[hnsw] Save index in %s \n", path_hnsw.c_str());
+#endif
+
             if (m_options.m_enableSSD) {
                 omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
 
@@ -615,6 +683,7 @@ namespace SPTAG
             m_workSpacePool.reset(new COMMON::WorkSpacePool<ExtraWorkSpace>());
             m_workSpacePool->Init(m_options.m_iSSDNumberOfThreads, m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx);
             m_bReady = true;
+
             return ErrorCode::Success;
         }
         template <typename T>

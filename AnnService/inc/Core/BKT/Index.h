@@ -101,6 +101,7 @@ namespace SPTAG
 
             ~Index() {}
 
+            inline void SetMaxCheck (int mc) { m_iMaxCheck = mc; }
             inline SizeType GetNumSamples() const { return m_pSamples.R(); }
             inline SizeType GetNumDeleted() const { return (SizeType)m_deletedID.Count(); }
             inline DimensionType GetFeatureDim() const { return m_pSamples.C(); }

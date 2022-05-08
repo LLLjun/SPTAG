@@ -84,6 +84,7 @@ public:
 
     virtual ErrorCode SearchIndex(const void* p_vector, int p_vectorCount, int p_neighborCount, bool p_withMeta, BasicResult* p_results) const;
     virtual ErrorCode SearchIndexStats(QueryResult &p_query, void* p_stats = nullptr, bool p_searchDeleted = false) const;
+    virtual void SetMaxCheck (int mc);
 
     virtual void ApproximateRNG(std::shared_ptr<VectorSet>& fullVectors, std::unordered_set<SizeType>& exceptIDS, int candidateNum, Edge* selections, int replicaCount, int numThreads, int numTrees, int leafSize, float RNGFactor, int numGPUs);
 

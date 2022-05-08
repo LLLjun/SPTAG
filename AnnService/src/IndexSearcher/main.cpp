@@ -170,8 +170,15 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
 
         for (int mc = 0; mc < maxCheck.size(); mc++)
         {
-            index.SetParameter("MaxCheck", maxCheck[mc].c_str());
-            // printf("[debug] maxcheck: %d\n", index.GetCurrMaxCheck());
+            if (index.GetIndexAlgoType() == IndexAlgoType::SPANN) {
+                index.SetMaxCheck(std::atoi(maxCheck[mc].c_str()) * internalResultNum * 16);
+            } else {
+                index.SetParameter("MaxCheck", maxCheck[mc].c_str());
+            }
+
+// #if HNSWINDEX
+//             index.SetHnswEfs(std::atoi(maxCheck[mc]) / 16);
+// #endif
 
             for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
             for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats();

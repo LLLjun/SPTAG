@@ -29,6 +29,7 @@ DefineBasicParameter(m_deleteIDFile, std::string, std::string("DeletedIDs.bin"),
 DefineBasicParameter(m_headVectorFile, std::string, std::string("SPTAGHeadVectors.bin"), "HeadVectors")
 DefineBasicParameter(m_headIndexFolder, std::string, std::string("HeadIndex"), "HeadIndexFolder")
 DefineBasicParameter(m_ssdIndex, std::string, std::string("SPTAGFullList.bin"), "SSDIndex")
+DefineBasicParameter(m_hnswIndex, std::string, std::string("hnsw.bin"), "HnswIndex")
 DefineBasicParameter(m_deleteHeadVectors, bool, false, "DeleteHeadVectors")
 DefineBasicParameter(m_ssdIndexFileNum, int, 1, "SSDIndexFileNum")
 DefineBasicParameter(m_quantizerFilePath, std::string, std::string(), "QuantizerFilePath")

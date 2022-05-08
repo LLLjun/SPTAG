@@ -4,6 +4,8 @@
 #ifndef _SPTAG_SPANN_OPTIONS_H_
 #define _SPTAG_SPANN_OPTIONS_H_
 
+#define HNSWINDEX true
+
 #include "inc/Core/Common.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/CommonHelper.h"
@@ -40,6 +42,7 @@ namespace SPTAG {
             std::string m_headIndexFolder;
             std::string m_deleteIDFile;
             std::string m_ssdIndex;
+            std::string m_hnswIndex;
             bool m_deleteHeadVectors;
             int m_ssdIndexFileNum;
             std::string m_quantizerFilePath;

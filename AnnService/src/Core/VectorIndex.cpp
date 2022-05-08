@@ -431,11 +431,16 @@ VectorIndex::SearchIndex(const void* p_vector, int p_vectorCount, int p_neighbor
 
 ErrorCode
 VectorIndex::SearchIndexStats(QueryResult &p_query, void* p_stats, bool p_searchDeleted) const {
-    printf("Error\n");
+    printf("[SearchIndexStats]Error\n");
     exit(1);
     return ErrorCode::Success;
 }
 
+void
+VectorIndex::SetMaxCheck (int mc) {
+    printf("[SetMaxCheck]Error\n");
+    exit(1);
+}
 
 ErrorCode 
 VectorIndex::AddIndex(std::shared_ptr<VectorSet> p_vectorSet, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex, bool p_normalized) {
