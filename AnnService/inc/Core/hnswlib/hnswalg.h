@@ -51,7 +51,8 @@ void LoadBinToArray(std::string& file_path, data_T *data_m, uint32_t nums, uint3
         }
     }
 
-    file_reader.read((char *) data_m, nums * dims * sizeof(data_T));
+    for (int i = 0; i < nums; i++)
+        file_reader.read((char *) (data_m + dims * i), dims * sizeof(data_T));
     file_reader.close();
     printf("Load %u * %u Data from %s done.\n", nums, dims, file_path.c_str());
 };

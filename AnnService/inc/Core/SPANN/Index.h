@@ -66,7 +66,15 @@ namespace SPTAG
 
             // void SetHnswEfs(int efs) { m_hnsw->setEf((size_t) efs); }
             // 原始的SPANN并不能通过maxcheck来很好的调整最终精度，因此这里引入了调节索引结果数[失败了]
-            inline void SetMaxCheck (int mc) { m_index->SetMaxCheck(mc); }
+            inline void SetMaxCheck (int mc) { 
+                m_options.m_searchInternalResultNum = mc;
+                m_workSpacePool->Init(m_options.m_iSSDNumberOfThreads, m_options.m_maxCheck, m_options.m_hashExp, 
+                                        m_options.m_searchInternalResultNum, 
+                                        min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx);
+#if (!HNSWINDEX)
+                m_index->SetMaxCheck(mc * 16 * 2);
+#endif
+            }
 
             inline std::shared_ptr<VectorIndex> GetMemoryIndex() { return m_index; }
             inline std::shared_ptr<IExtraSearcher> GetDiskIndex() { return m_extraSearcher; }

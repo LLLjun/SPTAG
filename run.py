@@ -5,16 +5,22 @@ vecdim  = 96
 size_base = 1
 format = "Float"
 
-stage = "build"
+stage = "search"
 cmake_mode = "Release"
 alg = "SPANN"
 
 path_dataset = "../dataset/" + dataset
 path_datasize = path_dataset + "/" + dataset + str(size_base) + "m"
 
-path_base   = path_datasize + "/base." + str(size_base) + "m.fbin"
 path_gt     = path_datasize + "/groundtruth." + str(size_base) + "m.bin"
-path_query  = path_dataset + "/query.public.10K.fbin"
+path_base   = path_datasize + "/base." + str(size_base) + "m."
+path_query  = path_dataset + "/query.public.10K."
+if format == "Float":
+    path_base += "fbin"
+    path_query += "fbin"
+elif format == "UInt8":
+    path_base += "u8bin"
+    path_query += "u8bin"
 
 path_index = "graphindex/" + alg + "/actual/" + dataset + str(size_base) + "m_c8p12"
 
@@ -27,14 +33,14 @@ def main():
     os.system(cmd_make)
 
     cmd_build = "./Release/indexbuilder " + \
-                "-c buildconfig" + format + ".ini " + \
+                "-c buildconfig" + dataset + ".ini " + \
                 "-d " + str(vecdim) + " " + \
                 "-v " + format + " " + \
                 "-f DEFAULT " + \
                 "-i " + path_base + " " + \
                 "-o " + path_index + " " + \
                 "-a " + alg + " " + \
-                "-t 112"
+                "-t 30"
     if stage == "both" or stage == "build":
         os.system(cmd_build)
 
@@ -48,7 +54,7 @@ def main():
                     "-t " + str(t) + " " + \
                     "-k 10 " + \
                     "-x " + path_index + " " + \
-                    "-m 2"
+                    "-m 100#90#80#70#60#50#40#30#20#10"
         if stage == "both" or stage == "search":
             os.system(cmd_search)
 

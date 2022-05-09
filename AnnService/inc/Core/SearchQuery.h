@@ -166,6 +166,18 @@ public:
         }
     }
 
+    inline void Resize(int num)
+    {
+        if (m_resultNum > num)
+            m_resultNum = num;
+
+        for (int i = 0; i < m_resultNum; i++)
+        {
+            m_results[i].VID = -1;
+            m_results[i].Dist = MaxDist;
+            m_results[i].Meta.Clear();
+        }
+    }
 
     iterator begin()
     {

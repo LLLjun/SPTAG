@@ -159,7 +159,8 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     std::vector<SPTAG::SPANN::SearchStats> stats(options->m_batch);
 
     // LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
-    LOG(Helper::LogLevel::LL_Info, "[query]\t[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
+    // LOG(Helper::LogLevel::LL_Info, "[query]\t[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
+    printf("[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
     std::vector<float> totalAvg(maxCheck.size(), 0.0), total99(maxCheck.size(), 0.0), total95(maxCheck.size(), 0.0), totalRecall(maxCheck.size(), 0.0), totalLatency(maxCheck.size(), 0.0);
     for (int startQuery = 0; startQuery < queryVectors->Count(); startQuery += options->m_batch)
     {
@@ -171,16 +172,15 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         for (int mc = 0; mc < maxCheck.size(); mc++)
         {
             if (index.GetIndexAlgoType() == IndexAlgoType::SPANN) {
-                index.SetMaxCheck(std::atoi(maxCheck[mc].c_str()) * internalResultNum * 16);
+                // 其实这里是 索引返回的数量
+                index.SetMaxCheck(std::atoi(maxCheck[mc].c_str()));
             } else {
                 index.SetParameter("MaxCheck", maxCheck[mc].c_str());
             }
 
-// #if HNSWINDEX
-//             index.SetHnswEfs(std::atoi(maxCheck[mc]) / 16);
-// #endif
+            // for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
+            for (SizeType i = 0; i < numQuerys; i++) results[i].Resize(std::atoi(maxCheck[mc].c_str()));
 
-            for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
             for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats();
 
             std::atomic_size_t queriesSent(0);
@@ -298,7 +298,8 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         }
     }       // end of batch
     for (int mc = 0; mc < maxCheck.size(); mc++)
-        LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n", 0, queryVectors->Count(), 
+        // LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n", 0, queryVectors->Count(), 
+        printf("%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n",
             maxCheck[mc].c_str(), (totalRecall[mc] / queryVectors->Count()), 
             (1.0 * tatalstats[mc].m_diskIOCount / queryVectors->Count()),
             (1.0 * tatalstats[mc].m_diskAccessCount / queryVectors->Count()),
