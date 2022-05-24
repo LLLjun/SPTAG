@@ -25,7 +25,7 @@ namespace SPTAG {
 
         struct SearchStats
         {
-            SearchStats()
+            SearchStats(int resNum = -1)
                 : m_check(0),
                 m_exCheck(0),
                 m_totalListElementsCount(0),
@@ -40,6 +40,18 @@ namespace SPTAG {
                 m_queueLatency(0),
                 m_sleepLatency(0)
             {
+                if (dist_heads == nullptr){
+                    dist_num = resNum;
+                    if (dist_num > 0){
+                        dist_heads = new float[dist_num]();
+                        dist_post_max = new float[dist_num]();
+                        vec_heads = new char*[dist_num]();
+                    }
+                } else {
+                    if (dist_num > resNum){
+                        dist_num = resNum;
+                    }
+                }
             }
 
             int m_check;
@@ -71,6 +83,11 @@ namespace SPTAG {
             std::chrono::steady_clock::time_point m_searchRequestTime;
 
             int m_threadID;
+
+            float* dist_heads = nullptr;
+            float* dist_post_max = nullptr;
+            int dist_num;
+            char** vec_heads = nullptr;
         };
 
         template<typename T>

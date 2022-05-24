@@ -158,9 +158,9 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     std::vector<SPTAG::SPANN::SearchStats> tatalstats(maxCheck.size());
     std::vector<SPTAG::SPANN::SearchStats> stats(options->m_batch);
 
-    // LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
-    // LOG(Helper::LogLevel::LL_Info, "[query]\t[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
-    printf("[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%]\t[extra(us)]\t[search(us)]\n");
+    // LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
+    // LOG(Helper::LogLevel::LL_Info, "[query]\t[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%%]\t[extra(us)]\t[search(us)]\n");
+    printf("[maxcheck]\t[recall]\t[IO]\t[Access]\t[qps]\t[avg]\t[99%%]\t[extra(us)]\t[search(us)]\n");
     std::vector<float> totalAvg(maxCheck.size(), 0.0), total99(maxCheck.size(), 0.0), total95(maxCheck.size(), 0.0), totalRecall(maxCheck.size(), 0.0), totalLatency(maxCheck.size(), 0.0);
     for (int startQuery = 0; startQuery < queryVectors->Count(); startQuery += options->m_batch)
     {
@@ -181,7 +181,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             // for (SizeType i = 0; i < numQuerys; i++) results[i].Reset();
             for (SizeType i = 0; i < numQuerys; i++) results[i].Resize(std::atoi(maxCheck[mc].c_str()));
 
-            for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats();
+            for (SizeType i = 0; i < numQuerys; i++) stats[i] = SPTAG::SPANN::SearchStats(std::atoi(maxCheck[mc].c_str()));
 
             std::atomic_size_t queriesSent(0);
             std::vector<std::thread> threads;
@@ -250,6 +250,35 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             total99[mc] += l99 * numQuerys;
             totalRecall[mc] += recall * numQuerys;
             totalLatency[mc] += batchLatency;
+
+            // posting list detail
+            // for (int qid = 0; qid < numQuerys; qid++){
+            //     printf("query id: %d\n", qid);
+            //     for (int i = 0; i < stats[qid].dist_num; i++)
+            //         printf("%d\t%.3f\t%.3f\n", i, stats[qid].dist_heads[i], stats[qid].dist_post_max[i]);
+            //     printf("\n");
+            //     if (qid >= 21)
+            //         exit(1);
+            // }
+
+            // posting list total
+            int to = 0;
+            for (int qid = 0; qid < numQuerys; qid++){
+                float d_bound = stats[qid].dist_heads[9];
+                int nu = 0;
+                for (int i = 0; i < stats[qid].dist_num; i++){
+                    if (stats[qid].dist_heads[i] == 0 && stats[qid].dist_post_max[i] == 0)
+                        break;
+                    if ((stats[qid].dist_heads[i] - stats[qid].dist_post_max[i]) >= d_bound)
+                        nu++;
+                }
+                to += nu;
+                // printf("qid: %d, over: %d\n", qid, nu);
+            }
+            // printf("total: %d\n", to);
+            printf("%d\n", to);
+
+            // exit(0);
 
             for (int qid = 0; qid < numQuerys; qid++){
                 tatalstats[mc].m_exCheck += stats[qid].m_exCheck;

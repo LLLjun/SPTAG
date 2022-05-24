@@ -120,6 +120,9 @@ namespace SPTAG
                 SearchStats* p_stats, std::set<int>* truth, std::map<int, std::set<int>>* found)
             {
                 const uint32_t postingListCount = static_cast<uint32_t>(p_exWorkSpace->m_postingIDs.size());
+                if (p_stats && (uint32_t) p_stats->dist_num < postingListCount){
+                    printf("less resnum\n"); exit(1);
+                }
 
                 p_exWorkSpace->m_deduper.clear();
 
@@ -184,6 +187,14 @@ namespace SPTAG
                         exit(-1);
                     }
 
+                    float list_max = 0;
+                    float d_check = p_index->ComputeDistance(p_stats->vec_heads[pi], queryResults.GetQuantizedTarget());
+                    if (d_check != p_stats->dist_heads[pi]){
+                        printf("vector error\n"); 
+                        printf("%d, %.3f, %.3f\n", pi, p_stats->dist_heads[pi], d_check);
+                        exit(1);
+                    }
+
                     for (int i = 0; i < listInfo->listEleCount; ++i)
                     {
                         char* vectorInfo = buffer + listInfo->pageOffset + i * m_vectorInfoSize;
@@ -195,7 +206,12 @@ namespace SPTAG
                         auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), vectorInfo);
                         queryResults.AddPoint(vectorID, distance2leaf);
                         curCheck += 1;
+
+                        float ele_max = p_index->ComputeDistance(p_stats->vec_heads[pi], vectorInfo);
+                        list_max = std::max(list_max, ele_max);
                     }
+                    if (p_stats)
+                        p_stats->dist_post_max[pi] = list_max;
 
                     if (truth) {
                         for (int i = 0; i < listInfo->listEleCount; ++i) {

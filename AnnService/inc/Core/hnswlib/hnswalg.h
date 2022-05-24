@@ -234,6 +234,16 @@ namespace hnswlib {
             return (data_level0_memory_ + internal_id * size_data_per_element_ + offsetData_);
         }
 
+        char *getDataByExternalLabel(labeltype label){
+            auto search = label_lookup_.find(label);
+            if (search == label_lookup_.end()) {
+                printf("[hnsw] unexisting label! %d \n", label);
+                exit(1);
+            }
+            tableint existingInternalId = search->second;
+            return getDataByInternalId(existingInternalId);
+        }
+
         int getRandomLevel(double reverse_size) {
             std::uniform_real_distribution<double> distribution(0.0, 1.0);
             double r = -log(distribution(level_generator_)) * reverse_size;
@@ -693,7 +703,7 @@ namespace hnswlib {
             revSize_ = 1.0 / mult_;
             ef_ = 10;
             for (size_t i = 0; i < cur_element_count; i++) {
-                label_lookup_[getExternalLabel(i)]=i;
+                label_lookup_[getExternalLabel(i)] = i;
                 unsigned int linkListSize;
                 readBinaryPOD(input, linkListSize);
                 if (linkListSize == 0) {

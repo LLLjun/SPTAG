@@ -185,6 +185,10 @@ namespace SPTAG
                     auto res = p_queryResults->GetResult(i);
                     if (res->VID == -1 || (limitDist > 0.1 && res->Dist > limitDist)) break;
                     workSpace->m_postingIDs.emplace_back(res->VID);
+                    if (pp_stats) {
+                        pp_stats->dist_heads[i] = res->Dist;
+                        pp_stats->vec_heads[i] = m_hnsw->getDataByExternalLabel((int32_t)res->VID);
+                    }
                 }
 
                 for (int i = 0; i < p_queryResults->GetResultNum(); ++i)                                // 对heads的ID进行转换
