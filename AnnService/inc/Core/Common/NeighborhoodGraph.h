@@ -109,8 +109,13 @@ namespace SPTAG
                 SizeType initSize;
                 SPTAG::Helper::Convert::ConvertStringTo(index->GetParameter("NumberOfInitialDynamicPivots").c_str(), initSize);
 
-                // Build the entire RNG graph, both builds the KNN and refines it to RNG
-                buildGraph<T>(index, m_iGraphSize, m_iNeighborhoodSize, m_iTPTNumber, (int*)m_pNeighborhoodGraph[0], m_iGPURefineSteps, m_iGPURefineDepth, m_iGPUGraphType, m_iGPULeafSize, initSize, m_iheadNumGPUs, m_iTPTBalanceFactor);
+                if (index->m_pQuantizer) {
+                    buildGraph<T>(index, m_iGraphSize, m_iNeighborhoodSize, m_iTPTNumber, (int*)m_pNeighborhoodGraph[0], m_iGPURefineSteps, m_iGPURefineDepth, m_iGPUGraphType, m_iGPULeafSize, initSize, m_iheadNumGPUs, m_iTPTBalanceFactor);
+                }
+                else {
+                    // Build the entire RNG graph, both builds the KNN and refines it to RNG
+                    buildGraph<T>(index, m_iGraphSize, m_iNeighborhoodSize, m_iTPTNumber, (int*)m_pNeighborhoodGraph[0], m_iGPURefineSteps, m_iGPURefineDepth, m_iGPUGraphType, m_iGPULeafSize, initSize, m_iheadNumGPUs, m_iTPTBalanceFactor);
+                }
 
                 if (idmap != nullptr) {
                     std::unordered_map<SizeType, SizeType>::const_iterator iter;
@@ -127,9 +132,9 @@ namespace SPTAG
             void PartitionByTptree(VectorIndex* index, std::vector<SizeType>& indices, const SizeType first, const SizeType last,
                 std::vector<std::pair<SizeType, SizeType>>& leaves)
             {
-                if (COMMON::DistanceUtils::Quantizer)
+                if (index->m_pQuantizer)
                 {
-                    switch (COMMON::DistanceUtils::Quantizer->GetReconstructType())
+                    switch (index->m_pQuantizer->GetReconstructType())
                     {
 #define DefineVectorValueType(Name, Type) \
 case VectorValueType::Name: \
@@ -144,6 +149,7 @@ break;
                 }
                 else
                 {
+			printf("No quantizer!\n");
                     PartitionByTptreeCore<T, T>(index, indices, first, last, leaves);
                 }
             }
@@ -159,11 +165,11 @@ break;
                 else
                 {
                     SizeType cols = index->GetFeatureDim();
-                    bool quantizer_exists = (bool)COMMON::DistanceUtils::Quantizer;
+                    bool quantizer_exists = (bool)index->m_pQuantizer;
                     R* v_holder = nullptr;
                     if (quantizer_exists) {
-                        cols = COMMON::DistanceUtils::Quantizer->ReconstructDim();
-                        v_holder = (R*)_mm_malloc(COMMON::DistanceUtils::Quantizer->ReconstructSize(), ALIGN_SPTAG);
+                        cols = index->m_pQuantizer->ReconstructDim();
+                        v_holder = (R*)ALIGN_ALLOC(index->m_pQuantizer->ReconstructSize());
                     }
                     std::vector<float> Mean(cols, 0);
 
@@ -176,7 +182,7 @@ break;
                         R* v;
                         if (quantizer_exists)
                         {
-                            COMMON::DistanceUtils::Quantizer->ReconstructVector((uint8_t*)index->GetSample(indices[j]), v_holder);
+                            index->m_pQuantizer->ReconstructVector((uint8_t*)index->GetSample(indices[j]), v_holder);
                             v = v_holder;
                         }
                         else
@@ -205,7 +211,7 @@ break;
                         R* v;
                         if (quantizer_exists)
                         {
-                            COMMON::DistanceUtils::Quantizer->ReconstructVector((uint8_t*)index->GetSample(indices[j]), v_holder);
+                            index->m_pQuantizer->ReconstructVector((uint8_t*)index->GetSample(indices[j]), v_holder);
                             v = v_holder;
                         }
                         else
@@ -252,7 +258,7 @@ break;
                             R* v;
                             if (quantizer_exists)
                             {
-                                COMMON::DistanceUtils::Quantizer->ReconstructVector((uint8_t*)index->GetSample(indices[first + j]), v_holder);
+                                index->m_pQuantizer->ReconstructVector((uint8_t*)index->GetSample(indices[first + j]), v_holder);
                                 v = v_holder;
                             }
                             else
@@ -291,7 +297,7 @@ break;
                         R* v;
                         if (quantizer_exists)
                         {
-                            COMMON::DistanceUtils::Quantizer->ReconstructVector((uint8_t*)index->GetSample(indices[i]), v_holder);
+                            index->m_pQuantizer->ReconstructVector((uint8_t*)index->GetSample(indices[i]), v_holder);
                             v = v_holder;
                         }
                         else
@@ -325,7 +331,7 @@ break;
                     indexs.clear();
                     weight.clear();
                     bestweight.clear();
-                    if (v_holder) _mm_free(v_holder);
+                    if (v_holder) ALIGN_FREE(v_holder);
 
                     PartitionByTptreeCore<T, R>(index, indices, first, i - 1, leaves);
                     PartitionByTptreeCore<T, R>(index, indices, i, last, leaves);
@@ -335,6 +341,7 @@ break;
             template <typename T>
             void BuildInitKNNGraph(VectorIndex* index, const std::unordered_map<SizeType, SizeType>* idmap)
             {
+
                 COMMON::Dataset<float> NeighborhoodDists(m_iGraphSize, m_iNeighborhoodSize, index->m_iDataBlockSize, index->m_iDataCapacity);
                 std::vector<std::vector<SizeType>> TptreeDataIndices(m_iTPTNumber, std::vector<SizeType>(m_iGraphSize));
                 std::vector<std::vector<std::pair<SizeType, SizeType>>> TptreeLeafNodes(m_iTPTNumber, std::vector<std::pair<SizeType, SizeType>>());
@@ -350,13 +357,20 @@ break;
                 {
                     Sleep(i * 100); std::srand(clock());
                     for (SizeType j = 0; j < m_iGraphSize; j++) TptreeDataIndices[i][j] = j;
-                    std::random_shuffle(TptreeDataIndices[i].begin(), TptreeDataIndices[i].end());
+                    std::shuffle(TptreeDataIndices[i].begin(), TptreeDataIndices[i].end(), rg);
                     PartitionByTptree<T>(index, TptreeDataIndices[i], 0, m_iGraphSize - 1, TptreeLeafNodes[i]);
                     LOG(Helper::LogLevel::LL_Info, "Finish Getting Leaves for Tree %d\n", i);
                 }
                 LOG(Helper::LogLevel::LL_Info, "Parallel TpTree Partition done\n");
                 auto t2 = std::chrono::high_resolution_clock::now();
                 LOG(Helper::LogLevel::LL_Info, "Build TPTree time (s): %lld\n", std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count());
+
+		for(int i=0; i<10; i++) {
+                  for(int j=0; j<20; j++) {
+                    std::cout << static_cast<int16_t>(((uint8_t*)index->GetSample(i))[j]) << ", ";
+		  }
+		  std::cout << std::endl;
+		}
 
                 for (int i = 0; i < m_iTPTNumber; i++)
                 {
@@ -526,7 +540,7 @@ break;
 
             template <typename T>
             ErrorCode RefineGraph(VectorIndex* index, std::vector<SizeType>& indices, std::vector<SizeType>& reverseIndices,
-                std::shared_ptr<Helper::DiskPriorityIO> output, NeighborhoodGraph* newGraph, const std::unordered_map<SizeType, SizeType>* idmap = nullptr)
+                std::shared_ptr<Helper::DiskIO> output, NeighborhoodGraph* newGraph, const std::unordered_map<SizeType, SizeType>* idmap = nullptr)
             {
                 std::shared_ptr<NeighborhoodGraph> tmp;
                 if (newGraph == nullptr) {
@@ -569,16 +583,16 @@ break;
             {
                 COMMON::QueryResultSet<T> query((const T*)index->GetSample(node), CEF + 1);
                 void* rec_query = nullptr;
-                if (COMMON::DistanceUtils::Quantizer) {
-                    rec_query = _mm_malloc(COMMON::DistanceUtils::Quantizer->ReconstructSize(), ALIGN_SPTAG);
-                    COMMON::DistanceUtils::Quantizer->ReconstructVector((const uint8_t*)query.GetTarget(), rec_query);
-                    query.SetTarget((T*)rec_query);
+                if (index->m_pQuantizer) {
+                    rec_query = ALIGN_ALLOC(index->m_pQuantizer->ReconstructSize());
+                    index->m_pQuantizer->ReconstructVector((const uint8_t*)query.GetTarget(), rec_query);
+                    query.SetTarget((T*)rec_query, index->m_pQuantizer);
                 }
                 index->RefineSearchIndex(query, searchDeleted);
                 RebuildNeighbors(index, node, m_pNeighborhoodGraph[node], query.GetResults(), CEF + 1);
                 if (rec_query)
                 {
-                    _mm_free(rec_query);
+                    ALIGN_FREE(rec_query);
                 }
                 if (updateNeighbors) {
                     // update neighbors
@@ -598,7 +612,7 @@ break;
                 return m_pNeighborhoodGraph.BufferSize();
             }
 
-            ErrorCode LoadGraph(std::shared_ptr<Helper::DiskPriorityIO> input, SizeType blockSize, SizeType capacity)
+            ErrorCode LoadGraph(std::shared_ptr<Helper::DiskIO> input, SizeType blockSize, SizeType capacity)
             {
                 ErrorCode ret = ErrorCode::Success;
                 if ((ret = m_pNeighborhoodGraph.Load(input, blockSize, capacity)) != ErrorCode::Success) return ret;
@@ -636,7 +650,7 @@ break;
                 return SaveGraph(ptr);
             }
 
-            ErrorCode SaveGraph(std::shared_ptr<Helper::DiskPriorityIO> output) const
+            ErrorCode SaveGraph(std::shared_ptr<Helper::DiskIO> output) const
             {
                 IOBINARY(output, WriteBinary, sizeof(SizeType), (char*)&m_iGraphSize);
                 IOBINARY(output, WriteBinary, sizeof(DimensionType), (char*)&m_iNeighborhoodSize);

@@ -7,18 +7,12 @@
 #include "Options.h"
 
 #include "inc/Core/VectorIndex.h"
-#include "inc/Core/Common/WorkSpace.h"
 #include "inc/Helper/AsyncFileReader.h"
-
-#if defined(_MSC_VER) || defined(__INTEL_COMPILER)
-#include <malloc.h>
-#else
-#include <mm_malloc.h>
-#endif // defined(__GNUC__)
 
 #include <memory>
 #include <vector>
 #include <chrono>
+#include <atomic>
 
 namespace SPTAG {
     namespace SPANN {
@@ -87,7 +81,7 @@ namespace SPTAG {
                 if (m_pageBufferSize < p_size)
                 {
                     m_pageBufferSize = p_size;
-                    m_pageBuffer.reset(static_cast<T*>(_mm_malloc(sizeof(T) * m_pageBufferSize, 512)), [=](T* ptr) { _mm_free(ptr); });
+                    m_pageBuffer.reset(static_cast<T*>(PAGE_ALLOC(sizeof(T) * m_pageBufferSize)), [=](T* ptr) { PAGE_FREE(ptr); });
                 }
             }
 
@@ -114,17 +108,23 @@ namespace SPTAG {
             ~ExtraWorkSpace() {}
 
             ExtraWorkSpace(ExtraWorkSpace& other) {
-                Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()));
+                Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_enableDataCompression);
+                m_spaceID = g_spaceCount++;
             }
 
-            void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages) {
+            void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages, bool enableDataCompression) {
                 m_postingIDs.reserve(p_internalResultNum);
                 m_deduper.Init(p_maxCheck, p_hashExp);
+                m_processIocp.reset(p_internalResultNum);
                 m_pageBuffers.resize(p_internalResultNum);
                 for (int pi = 0; pi < p_internalResultNum; pi++) {
                     m_pageBuffers[pi].ReservePageBuffer(p_maxPages);
                 }
                 m_diskRequests.resize(p_internalResultNum);
+                m_enableDataCompression = enableDataCompression;
+                if (enableDataCompression) {
+                    m_decompressBuffer.ReservePageBuffer(p_maxPages);
+                }
             }
 
             void Initialize(va_list& arg) {
@@ -132,8 +132,11 @@ namespace SPTAG {
                 int hashExp = va_arg(arg, int);
                 int internalResultNum = va_arg(arg, int);
                 int maxPages = va_arg(arg, int);
-                Initialize(maxCheck, hashExp, internalResultNum, maxPages);
+                bool enableDataCompression = bool(va_arg(arg, int));
+                Initialize(maxCheck, hashExp, internalResultNum, maxPages, enableDataCompression);
             }
+
+            static void Reset() { g_spaceCount = 0; }
 
             std::vector<int> m_postingIDs;
 
@@ -143,7 +146,14 @@ namespace SPTAG {
 
             std::vector<PageBuffer<std::uint8_t>> m_pageBuffers;
 
-            std::vector<Helper::DiskListRequest> m_diskRequests;
+            bool m_enableDataCompression;
+            PageBuffer<std::uint8_t> m_decompressBuffer;
+
+            std::vector<Helper::AsyncReadRequest> m_diskRequests;
+
+            int m_spaceID;
+
+            static std::atomic_int g_spaceCount;
         };
 
         class IExtraSearcher
@@ -152,7 +162,6 @@ namespace SPTAG {
             IExtraSearcher()
             {
             }
-
 
             virtual ~IExtraSearcher()
             {
@@ -163,11 +172,15 @@ namespace SPTAG {
             virtual void SearchIndex(ExtraWorkSpace* p_exWorkSpace,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex> p_index,
-                SearchStats* p_stats, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) = 0;
+                SearchStats* p_stats,
+                std::set<int>* truth = nullptr,
+                std::map<int, std::set<int>>* found = nullptr) = 0;
 
             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                 std::shared_ptr<VectorIndex> p_index, 
                 Options& p_opt) = 0;
+
+            virtual bool CheckValidPosting(SizeType postingID) = 0;
         };
     } // SPANN
 } // SPTAG

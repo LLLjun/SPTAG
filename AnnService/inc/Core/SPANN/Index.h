@@ -9,6 +9,7 @@
 
 #include "../Common/CommonUtils.h"
 #include "../Common/DistanceUtils.h"
+#include "../Common/SIMDUtils.h"
 #include "../Common/QueryResultSet.h"
 #include "../Common/BKTree.h"
 #include "../Common/WorkSpacePool.h"
@@ -19,6 +20,7 @@
 #include "inc/Helper/ThreadPool.h"
 #include "inc/Helper/ConcurrentSet.h"
 #include "inc/Helper/VectorSetReader.h"
+#include "../Common/IQuantizer.h"
 
 #include "IExtraSearcher.h"
 #include "Options.h"
@@ -52,13 +54,13 @@ namespace SPTAG
 
             Options m_options;
 
-            float(*m_fComputeDistance)(const T* pX, const T* pY, DimensionType length);
+            std::function<float(const T*, const T*, DimensionType)> m_fComputeDistance;
             int m_iBaseSquare;
 
         public:
             Index()
             {
-                m_fComputeDistance = COMMON::DistanceCalcSelector<T>(m_options.m_distCalcMethod);
+                m_fComputeDistance = std::function<float(const T*, const T*, DimensionType)>(COMMON::DistanceCalcSelector<T>(m_options.m_distCalcMethod));
                 m_iBaseSquare = (m_options.m_distCalcMethod == DistCalcMethod::Cosine) ? COMMON::Utils::GetBase<T>() * COMMON::Utils::GetBase<T>() : 1;
             }
 
@@ -81,13 +83,15 @@ namespace SPTAG
             inline Options* GetOptions() { return &m_options; }
 
             inline SizeType GetNumSamples() const { return m_options.m_vectorSize; }
-            inline DimensionType GetFeatureDim() const { return m_options.m_dim; }
+            inline DimensionType GetFeatureDim() const { return m_pQuantizer ? m_pQuantizer->ReconstructDim() : m_index->GetFeatureDim(); }
         
             inline int GetCurrMaxCheck() const { return m_options.m_maxCheck; }
             inline int GetNumThreads() const { return m_options.m_iSSDNumberOfThreads; }
             inline DistCalcMethod GetDistCalcMethod() const { return m_options.m_distCalcMethod; }
             inline IndexAlgoType GetIndexAlgoType() const { return IndexAlgoType::SPANN; }
             inline VectorValueType GetVectorValueType() const { return GetEnumValueType<T>(); }
+
+            void SetQuantizer(std::shared_ptr<SPTAG::COMMON::IQuantizer> quantizer);
             
             inline float AccurateDistance(const void* pX, const void* pY) const { 
                 if (m_options.m_distCalcMethod == DistCalcMethod::L2) return m_fComputeDistance((const T*)pX, (const T*)pY, m_options.m_dim);
@@ -120,11 +124,11 @@ namespace SPTAG
                 return std::move(files);
             }
 
-            ErrorCode SaveConfig(std::shared_ptr<Helper::DiskPriorityIO> p_configout);
-            ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams);
+            ErrorCode SaveConfig(std::shared_ptr<Helper::DiskIO> p_configout);
+            ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
 
             ErrorCode LoadConfig(Helper::IniReader& p_reader);
-            ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams);
+            ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
             ErrorCode LoadIndexDataFromMemory(const std::vector<ByteArray>& p_indexBlobs);
 
             ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false);
@@ -147,14 +151,16 @@ namespace SPTAG
             ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false) { return ErrorCode::Undefined; }
             ErrorCode DeleteIndex(const void* p_vectors, SizeType p_vectorNum) { return ErrorCode::Undefined; }
             ErrorCode DeleteIndex(const SizeType& p_id) { return ErrorCode::Undefined; }
-            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams, IAbortOperation* p_abort) { return ErrorCode::Undefined; }
+            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort) { return ErrorCode::Undefined; }
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
         private:
             bool CheckHeadIndexType();
             void SelectHeadAdjustOptions(int p_vectorCount);
             int SelectHeadDynamicallyInternal(const std::shared_ptr<COMMON::BKTree> p_tree, int p_nodeID, const Options& p_opts, std::vector<int>& p_selected);
             void SelectHeadDynamically(const std::shared_ptr<COMMON::BKTree> p_tree, int p_vectorCount, std::vector<int>& p_selected);
-            bool SelectHead(std::shared_ptr<Helper::VectorSetReader>& p_reader);
+
+            template <typename InternalDataType>
+            bool SelectHeadInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
 
             ErrorCode BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
         };

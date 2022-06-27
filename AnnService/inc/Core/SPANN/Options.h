@@ -82,6 +82,13 @@ namespace SPTAG {
             bool m_enableSSD;
             bool m_buildSsdIndex;
             int m_iSSDNumberOfThreads;
+            bool m_enableDeltaEncoding;
+            bool m_enablePostingListRearrange;
+            bool m_enableDataCompression;
+            bool m_enableDictTraining;
+            int m_minDictTraingBufferSize;
+            int m_dictBufferCapacity;
+            int m_zstdCompressLevel;
 
             // Building
             int m_replicaCount;
@@ -92,6 +99,7 @@ namespace SPTAG {
             std::string m_tmpdir;
             float m_rngFactor;
             int m_samples;
+            bool m_excludehead;
 
             // GPU building
             int m_gpuSSDNumTrees;
@@ -115,6 +123,7 @@ namespace SPTAG {
             bool m_recall_analysis;
             int m_debugBuildInternalResultNum;
             bool m_enableADC;
+            int m_iotimeout;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

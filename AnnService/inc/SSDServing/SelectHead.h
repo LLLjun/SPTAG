@@ -886,7 +886,7 @@ namespace SPTAG {
                     LOG(Helper::LogLevel::LL_Info, "Start generating Random head.\n");
                     selected.resize(vectorSet->Count());
                     for (int i = 0; i < vectorSet->Count(); i++) selected[i] = i;
-                    std::random_shuffle(selected.begin(), selected.end());
+                    std::shuffle(selected.begin(), selected.end(), rg);
 
                     int headCnt = static_cast<int>(std::round(opts.m_ratio * vectorSet->Count()));
                     selected.resize(headCnt);
@@ -963,7 +963,7 @@ namespace SPTAG {
                 {
                     std::sort(selected.begin(), selected.end());
 
-                    std::shared_ptr<Helper::DiskPriorityIO> output = SPTAG::f_createIO(), outputIDs = SPTAG::f_createIO();
+                    std::shared_ptr<Helper::DiskIO> output = SPTAG::f_createIO(), outputIDs = SPTAG::f_createIO();
                     if (output == nullptr || outputIDs == nullptr ||
                         !output->Initialize(opts.m_headVectorFile.c_str(), std::ios::binary | std::ios::out) ||
                         !outputIDs->Initialize(opts.m_headIDFile.c_str(), std::ios::binary | std::ios::out)) {

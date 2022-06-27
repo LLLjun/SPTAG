@@ -6,7 +6,7 @@
 // DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr)
 DefineBasicParameter(m_valueType, SPTAG::VectorValueType, SPTAG::VectorValueType::Undefined, "ValueType")
 DefineBasicParameter(m_distCalcMethod, SPTAG::DistCalcMethod, SPTAG::DistCalcMethod::Undefined, "DistCalcMethod")
-DefineBasicParameter(m_indexAlgoType, SPTAG::IndexAlgoType, SPTAG::IndexAlgoType::BKT, "IndexAlgoType")
+DefineBasicParameter(m_indexAlgoType, SPTAG::IndexAlgoType, SPTAG::IndexAlgoType::KDT, "IndexAlgoType")
 DefineBasicParameter(m_dim, SPTAG::DimensionType, -1, "Dim")
 DefineBasicParameter(m_vectorPath, std::string, std::string(""), "VectorPath")
 DefineBasicParameter(m_vectorType, SPTAG::VectorFileType, SPTAG::VectorFileType::DEFAULT, "VectorType")
@@ -78,6 +78,13 @@ DefineBuildHeadParameter(m_buildHead, bool, false, "isExecute")
 DefineSSDParameter(m_enableSSD, bool, false, "isExecute")
 DefineSSDParameter(m_buildSsdIndex, bool, false, "BuildSsdIndex")
 DefineSSDParameter(m_iSSDNumberOfThreads, int, 16, "NumberOfThreads")
+DefineSSDParameter(m_enableDeltaEncoding, bool, false, "EnableDeltaEncoding")
+DefineSSDParameter(m_enablePostingListRearrange, bool, false, "EnablePostingListRearrange")
+DefineSSDParameter(m_enableDataCompression, bool, false, "EnableDataCompression")
+DefineSSDParameter(m_enableDictTraining, bool, true, "EnableDictTraining")
+DefineSSDParameter(m_minDictTraingBufferSize, int, 10240000, "MinDictTrainingBufferSize")
+DefineSSDParameter(m_dictBufferCapacity, int, 204800, "DictBufferCapacity")
+DefineSSDParameter(m_zstdCompressLevel, int, 0, "ZstdCompressLevel")
 
 // Building
 DefineSSDParameter(m_internalResultNum, int, 64, "InternalResultNum")
@@ -88,6 +95,7 @@ DefineSSDParameter(m_batches, int, 1, "Batches")
 DefineSSDParameter(m_tmpdir, std::string, std::string("."), "TmpDir")
 DefineSSDParameter(m_rngFactor, float, 1.0f, "RNGFactor")
 DefineSSDParameter(m_samples, int, 100, "RecallTestSampleNumber")
+DefineSSDParameter(m_excludehead, bool, true, "ExcludeHead")
 
 // GPU Building
 DefineSSDParameter(m_gpuSSDNumTrees, int, 100, "GPUSSDNumTrees")
@@ -106,10 +114,11 @@ DefineSSDParameter(m_queryCountLimit, int, (std::numeric_limits<int>::max)(), "Q
 DefineSSDParameter(m_maxDistRatio, float, 10000, "MaxDistRatio")
 DefineSSDParameter(m_ioThreads, int, 4, "IOThreadsPerHandler")
 DefineSSDParameter(m_searchInternalResultNum, int, 64, "SearchInternalResultNum")
-DefineSSDParameter(m_searchPostingPageLimit, int, (std::numeric_limits<int>::max)() - 1, "SearchPostingPageLimit")
+DefineSSDParameter(m_searchPostingPageLimit, int, 3, "SearchPostingPageLimit")
 DefineSSDParameter(m_rerank, int, 0, "Rerank")
 DefineSSDParameter(m_enableADC, bool, false, "EnableADC")
 DefineSSDParameter(m_recall_analysis, bool, false, "RecallAnalysis")
 DefineSSDParameter(m_debugBuildInternalResultNum, int, 64, "DebugBuildInternalResultNum")
+DefineSSDParameter(m_iotimeout, int, 30, "IOTimeout")
 
 #endif

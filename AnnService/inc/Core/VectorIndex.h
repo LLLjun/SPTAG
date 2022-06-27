@@ -10,6 +10,7 @@
 #include "MetadataSet.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include <unordered_set>
+#include "inc/Core/Common/IQuantizer.h"
 
 namespace SPTAG
 {
@@ -104,7 +105,15 @@ public:
     }
     virtual void SetIndexName(std::string p_name) { m_sIndexName = p_name; }
 
-    static ErrorCode LoadQuantizer(std::string p_quantizerFile);
+    virtual void SetQuantizerFileName(std::string p_QuantizerFileName) { m_sQuantizerFile = p_QuantizerFileName; }
+
+    virtual void SetQuantizerADC(bool enableADC) {
+        if (m_pQuantizer) m_pQuantizer->SetEnableADC(enableADC);
+    }
+
+    virtual void SetQuantizer(std::shared_ptr<SPTAG::COMMON::IQuantizer> quantizer) = 0;
+
+    virtual ErrorCode LoadQuantizer(std::string p_quantizerFile);
 
     static std::shared_ptr<VectorIndex> CreateInstance(IndexAlgoType p_algo, VectorValueType p_valuetype);
 
@@ -122,19 +131,19 @@ public:
 
     virtual std::shared_ptr<std::vector<std::string>> GetIndexFiles() const = 0;
 
-    virtual ErrorCode SaveConfig(std::shared_ptr<Helper::DiskPriorityIO> p_configout) = 0;
+    virtual ErrorCode SaveConfig(std::shared_ptr<Helper::DiskIO> p_configout) = 0;
 
-    virtual ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams) = 0;
+    virtual ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams) = 0;
 
     virtual ErrorCode LoadConfig(Helper::IniReader& p_reader) = 0;
 
-    virtual ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams) = 0;
+    virtual ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams) = 0;
 
     virtual ErrorCode LoadIndexDataFromMemory(const std::vector<ByteArray>& p_indexBlobs) = 0;
 
     virtual ErrorCode DeleteIndex(const SizeType& p_id) = 0;
 
-    virtual ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams, IAbortOperation* p_abort) = 0;
+    virtual ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort) = 0;
 
     inline bool HasMetaMapping() const { return nullptr != m_pMetaToVec; }
 
@@ -147,7 +156,7 @@ public:
 private:
     ErrorCode LoadIndexConfig(Helper::IniReader& p_reader);
 
-    ErrorCode SaveIndexConfig(std::shared_ptr<Helper::DiskPriorityIO> p_configOut);
+    ErrorCode SaveIndexConfig(std::shared_ptr<Helper::DiskIO> p_configOut);
 
 protected:
     bool m_bReady = false;
@@ -162,6 +171,7 @@ public:
     int m_iDataBlockSize;
     int m_iDataCapacity;
     int m_iMetaRecordSize;
+    std::shared_ptr<SPTAG::COMMON::IQuantizer> m_pQuantizer = nullptr;
 };
 
 

@@ -7,6 +7,7 @@
 #include <functional>
 #include <fstream>
 #include <string.h>
+#include <memory>
 
 namespace SPTAG
 {
@@ -25,21 +26,25 @@ namespace SPTAG
             std::uint64_t m_offset;
             std::uint64_t m_readSize;
             char* m_buffer;
-            std::function<void(bool)> m_callback;
-            
+            std::function<void(AsyncReadRequest*)> m_callback;
+            int m_status;
+
             // Carry items like counter for callback to process.
             void* m_payload;
             bool m_success;
 
-            AsyncReadRequest() : m_offset(0), m_readSize(0), m_buffer(nullptr), m_payload(nullptr), m_success(false) {}
+            // Carry exension metadata needed by some DiskIO implementations
+            void* m_extension;
+
+            AsyncReadRequest() : m_offset(0), m_readSize(0), m_buffer(nullptr), m_status(0), m_payload(nullptr), m_success(false), m_extension(nullptr) {}
         };
 
-        class DiskPriorityIO
+        class DiskIO
         {
         public:
-            DiskPriorityIO(DiskIOScenario scenario = DiskIOScenario::DIS_UserRead) {}
+            DiskIO(DiskIOScenario scenario = DiskIOScenario::DIS_UserRead) {}
 
-            virtual ~DiskPriorityIO() {}
+            virtual ~DiskIO() {}
 
             virtual bool Initialize(const char* filePath, int openMode,
                 // Max read/write buffer size.
@@ -56,15 +61,18 @@ namespace SPTAG
 
             virtual std::uint64_t WriteString(const char* buffer, std::uint64_t offset = UINT64_MAX) = 0;
 
-            virtual bool ReadFileAsync(AsyncReadRequest& readRequest) = 0;
+            virtual bool ReadFileAsync(AsyncReadRequest& readRequest) { return false; }
+            
+            virtual bool BatchReadFile(AsyncReadRequest* readRequests, std::uint32_t requestCount) { return false; }
+
+            virtual bool BatchCleanRequests(SPTAG::Helper::AsyncReadRequest* readRequests, std::uint32_t requestCount) { return false; }
 
             virtual std::uint64_t TellP() = 0;
 
-            virtual void ShutDown() = 0;
-
+            virtual void ShutDown() = 0; 
         };
 
-        class SimpleFileIO : public DiskPriorityIO
+        class SimpleFileIO : public DiskIO
         {
         public:
             SimpleFileIO(DiskIOScenario scenario = DiskIOScenario::DIS_UserRead) {}
@@ -135,11 +143,6 @@ namespace SPTAG
                 return WriteBinary(strlen(buffer), (const char*)buffer, offset);
             }
 
-            virtual bool ReadFileAsync(AsyncReadRequest& readRequest)
-            {
-                return false;
-            }
-
             virtual std::uint64_t TellP()
             {
                 return m_handle->tellp();
@@ -154,7 +157,7 @@ namespace SPTAG
             std::unique_ptr<std::fstream> m_handle;
         };
 
-        class SimpleBufferIO : public DiskPriorityIO
+        class SimpleBufferIO : public DiskIO
         {
         public:
             struct streambuf : public std::basic_streambuf<char>
@@ -244,11 +247,6 @@ namespace SPTAG
             virtual std::uint64_t WriteString(const char* buffer, std::uint64_t offset = UINT64_MAX)
             {
                 return WriteBinary(strlen(buffer), (const char*)buffer, offset);
-            }
-
-            virtual bool ReadFileAsync(AsyncReadRequest& readRequest)
-            {
-                return false;
             }
 
             virtual std::uint64_t TellP()

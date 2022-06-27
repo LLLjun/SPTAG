@@ -11,7 +11,7 @@ using namespace SPTAG;
 using namespace SPTAG::Helper;
 
 TxtVectorReader::TxtVectorReader(std::shared_ptr<ReaderOptions> p_options)
-    : VectorSetReader(std::move(p_options)),
+    : VectorSetReader(p_options),
     m_subTaskBlocksize(0)
 {
     omp_set_num_threads(m_options->m_threadNum);
@@ -66,11 +66,12 @@ TxtVectorReader::LoadFile(const std::string& p_filePaths)
             exit(1);
         }
 
-        std::uint32_t fileTaskCount = 0;
+        std::uint32_t fileTaskCount = 1;
         std::size_t blockSize = m_subTaskBlocksize;
         if (0 == blockSize)
         {
             fileTaskCount = m_options->m_threadNum;
+if(fileTaskCount == 0) fileTaskCount = 1;
             blockSize = (fileInfo.second + fileTaskCount - 1) / fileTaskCount;
         }
         else
@@ -173,7 +174,7 @@ TxtVectorReader::LoadFileInternal(const std::string& p_filePath,
     std::size_t totalRead = 0;
     std::streamoff startpos = p_fileBlockID * p_fileBlockSize;
 
-    std::shared_ptr<Helper::DiskPriorityIO> input = f_createIO(), output = f_createIO(), meta = f_createIO(), metaIndex = f_createIO();
+    std::shared_ptr<Helper::DiskIO> input = f_createIO(), output = f_createIO(), meta = f_createIO(), metaIndex = f_createIO();
     if (input == nullptr || !input->Initialize(p_filePath.c_str(), std::ios::in | std::ios::binary))
     {
         LOG(Helper::LogLevel::LL_Error, "Unable to open file: %s\n",p_filePath.c_str());
@@ -271,7 +272,7 @@ TxtVectorReader::MergeData()
     const std::size_t bufferSize = 1 << 30;
     const std::size_t bufferSizeTrim64 = (bufferSize / sizeof(std::uint64_t)) * sizeof(std::uint64_t);
 
-    std::shared_ptr<Helper::DiskPriorityIO> input = f_createIO(), output = f_createIO(), meta = f_createIO(), metaIndex = f_createIO();
+    std::shared_ptr<Helper::DiskIO> input = f_createIO(), output = f_createIO(), meta = f_createIO(), metaIndex = f_createIO();
 
     if (output == nullptr || !output->Initialize(m_vectorOutput.c_str(), std::ios::binary | std::ios::out) ||
         meta == nullptr || !meta->Initialize(m_metadataConentOutput.c_str(), std::ios::binary | std::ios::out) ||

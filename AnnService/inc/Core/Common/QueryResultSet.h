@@ -7,6 +7,7 @@
 #include "../SearchQuery.h"
 #include "DistanceUtils.h"
 #include <algorithm>
+#include "IQuantizer.h"
 
 namespace SPTAG
 {
@@ -47,9 +48,38 @@ public:
         m_target = p_target;
         if (m_quantizedTarget)
         {
-            _mm_free(m_quantizedTarget);
+            ALIGN_FREE(m_quantizedTarget);
         }
         m_quantizedTarget = nullptr;
+        m_quantizedSize = 0;
+    }
+
+    inline void SetTarget(const T* p_target, const std::shared_ptr<IQuantizer>& quantizer)
+    {
+        m_target = p_target;
+        if (quantizer)
+        {
+            if (m_quantizedTarget && (m_quantizedSize == quantizer->QuantizeSize()))
+            {
+                quantizer->QuantizeVector((void*)p_target, (uint8_t*)m_quantizedTarget);
+            }
+            else
+            {
+                if (m_quantizedTarget) ALIGN_FREE(m_quantizedTarget);
+                m_quantizedSize = quantizer->QuantizeSize();
+                m_quantizedTarget = ALIGN_ALLOC(m_quantizedSize);
+                quantizer->QuantizeVector((void*)p_target, (uint8_t*)m_quantizedTarget);
+            }
+        }
+        else
+        {
+            if (m_quantizedTarget)
+            {
+                ALIGN_FREE(m_quantizedTarget);
+            }
+            m_quantizedTarget = nullptr;
+            m_quantizedSize = 0;
+        }
     }
 
     inline const T* GetTarget() const
@@ -59,19 +89,19 @@ public:
 
     T* GetQuantizedTarget()
     {
-        if (COMMON::DistanceUtils::Quantizer)
+        if (m_quantizedTarget)
         {
-            if (!m_quantizedTarget)
-            {
-                m_quantizedTarget = _mm_malloc(COMMON::DistanceUtils::Quantizer->QuantizeSize(), ALIGN_SPTAG);
-                COMMON::DistanceUtils::Quantizer->QuantizeVector((void*)m_target, (uint8_t*)m_quantizedTarget);
-            }
             return reinterpret_cast<T*>(m_quantizedTarget);
         }
         else
         {
             return (T*)reinterpret_cast<const T*>(m_target);
         }
+    }
+
+    bool HasQuantizedTarget()
+    {
+        return m_quantizedTarget;
     }
 
     inline float worstDist() const

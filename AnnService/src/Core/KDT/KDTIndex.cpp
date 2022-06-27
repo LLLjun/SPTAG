@@ -26,6 +26,34 @@ namespace SPTAG
             return ErrorCode::Success;
         }
 
+        template <>
+        void Index<std::uint8_t>::SetQuantizer(std::shared_ptr<SPTAG::COMMON::IQuantizer> quantizer)
+        {
+            m_pQuantizer = quantizer;
+            m_pTrees.m_pQuantizer = quantizer;
+            if (m_pQuantizer)
+            {
+                m_fComputeDistance = m_pQuantizer->DistanceCalcSelector<std::uint8_t>(m_iDistCalcMethod);
+                m_iBaseSquare = (m_iDistCalcMethod == DistCalcMethod::Cosine) ? m_pQuantizer->GetBase() * m_pQuantizer->GetBase() : 1;
+            }
+            else
+            {
+                m_fComputeDistance = COMMON::DistanceCalcSelector<std::uint8_t>(m_iDistCalcMethod);
+                m_iBaseSquare = (m_iDistCalcMethod == DistCalcMethod::Cosine) ? COMMON::Utils::GetBase<std::uint8_t>() * COMMON::Utils::GetBase<std::uint8_t>() : 1;
+            }
+        }
+
+        template <typename T>
+        void Index<T>::SetQuantizer(std::shared_ptr<SPTAG::COMMON::IQuantizer> quantizer)
+        {
+            m_pQuantizer = quantizer;
+            m_pTrees.m_pQuantizer = quantizer;
+            if (quantizer)
+            {
+                LOG(SPTAG::Helper::LogLevel::LL_Error, "Set non-null quantizer for index with data type other than BYTE");
+            }
+        }
+
         template <typename T>
         ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vector<ByteArray>& p_indexBlobs)
         {
@@ -34,7 +62,8 @@ namespace SPTAG
             if (m_pSamples.Load((char*)p_indexBlobs[0].Data(), m_iDataBlockSize, m_iDataCapacity) != ErrorCode::Success) return ErrorCode::FailedParseValue;
             if (m_pTrees.LoadTrees((char*)p_indexBlobs[1].Data()) != ErrorCode::Success) return ErrorCode::FailedParseValue;
             if (m_pGraph.LoadGraph((char*)p_indexBlobs[2].Data(), m_iDataBlockSize, m_iDataCapacity) != ErrorCode::Success) return ErrorCode::FailedParseValue;
-            if (p_indexBlobs.size() > 3 && m_deletedID.Load((char*)p_indexBlobs[3].Data(), m_iDataBlockSize, m_iDataCapacity) != ErrorCode::Success) return ErrorCode::FailedParseValue;
+            if (p_indexBlobs.size() <= 3) m_deletedID.Initialize(m_pSamples.R(), m_iDataBlockSize, m_iDataCapacity);
+            else if (m_deletedID.Load((char*)p_indexBlobs[3].Data(), m_iDataBlockSize, m_iDataCapacity) != ErrorCode::Success) return ErrorCode::FailedParseValue;
 
             omp_set_num_threads(m_iNumberOfThreads);
             m_workSpacePool.reset(new COMMON::WorkSpacePool<COMMON::WorkSpace>());
@@ -44,7 +73,7 @@ namespace SPTAG
         }
 
         template <typename T>
-        ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams)
+        ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
             if (p_indexStreams.size() < 4) return ErrorCode::LackOfInputs;
 
@@ -63,7 +92,7 @@ namespace SPTAG
         }
 
         template<typename T>
-        ErrorCode Index<T>::SaveConfig(std::shared_ptr<Helper::DiskPriorityIO> p_configOut)
+        ErrorCode Index<T>::SaveConfig(std::shared_ptr<Helper::DiskIO> p_configOut)
         {
             auto workSpace = m_workSpacePool->Rent();
             m_iHashTableExp = workSpace->HashTableExponent();
@@ -80,7 +109,7 @@ namespace SPTAG
         }
 
         template<typename T>
-        ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams)
+        ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
             if (p_indexStreams.size() < 4) return ErrorCode::LackOfInputs;
 
@@ -98,6 +127,8 @@ namespace SPTAG
 #pragma region K-NN search
 
 #define Search(CheckDeleted) \
+        if (m_pQuantizer && !p_query.HasQuantizedTarget()) \
+        { p_query.SetTarget(p_query.GetTarget(), m_pQuantizer); } \
         std::shared_lock<std::shared_timed_mutex> lock(*(m_pTrees.m_lock)); \
         m_pTrees.InitSearchTrees(m_pSamples, m_fComputeDistance, p_query, p_space); \
         m_pTrees.SearchTrees(m_pSamples, m_fComputeDistance, p_query, p_space, m_iNumberOfInitialDynamicPivots); \
@@ -222,7 +253,7 @@ namespace SPTAG
 
             if (DistCalcMethod::Cosine == m_iDistCalcMethod && !p_normalized)
             {
-                int base = COMMON::Utils::GetBase<T>();
+                int base = m_pQuantizer ? m_pQuantizer->GetBase() : COMMON::Utils::GetBase<T>();
 #pragma omp parallel for
                 for (SizeType i = 0; i < GetNumSamples(); i++) {
                     COMMON::Utils::Normalize(m_pSamples[i], GetFeatureDim(), base);
@@ -302,7 +333,7 @@ namespace SPTAG
         }
 
         template <typename T>
-        ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams, IAbortOperation* p_abort)
+        ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort)
         {
             std::lock_guard<std::mutex> lock(m_dataAddLock);
             std::unique_lock<std::shared_timed_mutex> uniquelock(m_dataDeleteLock);
@@ -419,13 +450,6 @@ namespace SPTAG
                     m_deletedID.SetR(begin);
                     return ErrorCode::MemoryOverFlow;
                 }
-                if (DistCalcMethod::Cosine == m_iDistCalcMethod && !p_normalized)
-                {
-                    int base = COMMON::Utils::GetBase<T>();
-                    for (SizeType i = begin; i < end; i++) {
-                        COMMON::Utils::Normalize((T*)m_pSamples[i], GetFeatureDim(), base);
-                    }
-                }
 
                 if (m_pMetadata != nullptr) {
                     if (p_metadataSet != nullptr) {
@@ -441,6 +465,14 @@ namespace SPTAG
                     else {
                         for (SizeType i = begin; i < end; i++) m_pMetadata->Add(ByteArray::c_empty);
                     }
+                }
+            }
+
+            if (DistCalcMethod::Cosine == m_iDistCalcMethod && !p_normalized)
+            {
+                int base = m_pQuantizer ? m_pQuantizer->GetBase() : COMMON::Utils::GetBase<T>();
+                for (SizeType i = begin; i < end; i++) {
+                    COMMON::Utils::Normalize((T*)m_pSamples[i], GetFeatureDim(), base);
                 }
             }
 
@@ -486,8 +518,9 @@ namespace SPTAG
 #undef DefineKDTParameter
 
             if (SPTAG::Helper::StrUtils::StrEqualIgnoreCase(p_param, "DistCalcMethod")) {
-                m_fComputeDistance = COMMON::DistanceCalcSelector<T>(m_iDistCalcMethod);
-                m_iBaseSquare = (m_iDistCalcMethod == DistCalcMethod::Cosine) ? COMMON::Utils::GetBase<T>() * COMMON::Utils::GetBase<T>() : 1;
+                m_fComputeDistance = m_pQuantizer ? m_pQuantizer->DistanceCalcSelector<T>(m_iDistCalcMethod) : COMMON::DistanceCalcSelector<T>(m_iDistCalcMethod);
+                auto base = m_pQuantizer ? m_pQuantizer->GetBase() : COMMON::Utils::GetBase<T>();
+                m_iBaseSquare = (m_iDistCalcMethod == DistCalcMethod::Cosine) ? base * base : 1;
             }
             return ErrorCode::Success;
         }

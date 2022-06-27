@@ -19,6 +19,7 @@
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/ThreadPool.h"
+#include "../Common/IQuantizer.h"
 
 #include <functional>
 #include <shared_mutex>
@@ -76,7 +77,7 @@ namespace SPTAG
             int m_iNumberOfThreads;
 
             DistCalcMethod m_iDistCalcMethod;
-            float(*m_fComputeDistance)(const T* pX, const T* pY, DimensionType length);
+            std::function<float(const T*, const T*, DimensionType)> m_fComputeDistance;
             int m_iBaseSquare;
 
             int m_iMaxCheck;        
@@ -95,7 +96,7 @@ namespace SPTAG
 #undef DefineBKTParameter
 
                 m_pSamples.SetName("Vector");
-                m_fComputeDistance = COMMON::DistanceCalcSelector<T>(m_iDistCalcMethod);
+                m_fComputeDistance = std::function<float(const T*, const T*, DimensionType)>(COMMON::DistanceCalcSelector<T>(m_iDistCalcMethod));
                 m_iBaseSquare = (m_iDistCalcMethod == DistCalcMethod::Cosine) ? COMMON::Utils::GetBase<T>() * COMMON::Utils::GetBase<T>() : 1;
             }
 
@@ -111,6 +112,7 @@ namespace SPTAG
             inline DistCalcMethod GetDistCalcMethod() const { return m_iDistCalcMethod; }
             inline IndexAlgoType GetIndexAlgoType() const { return IndexAlgoType::BKT; }
             inline VectorValueType GetVectorValueType() const { return GetEnumValueType<T>(); }
+            void SetQuantizer(std::shared_ptr<SPTAG::COMMON::IQuantizer> quantizer);
             
             inline float AccurateDistance(const void* pX, const void* pY) const { 
                 if (m_iDistCalcMethod == DistCalcMethod::L2) return m_fComputeDistance((const T*)pX, (const T*)pY, m_pSamples.C());
@@ -122,7 +124,7 @@ namespace SPTAG
             }
             inline float ComputeDistance(const void* pX, const void* pY) const { return m_fComputeDistance((const T*)pX, (const T*)pY, m_pSamples.C()); }
             inline const void* GetSample(const SizeType idx) const { return (void*)m_pSamples[idx]; }
-            inline bool ContainSample(const SizeType idx) const { return idx < m_pSamples.R() && !m_deletedID.Contains(idx); }
+            inline bool ContainSample(const SizeType idx) const { return idx >= 0 && idx < m_deletedID.R() && !m_deletedID.Contains(idx); }
             inline bool NeedRefine() const { return m_deletedID.Count() > (size_t)(GetNumSamples() * m_fDeletePercentageForRefine); }
             std::shared_ptr<std::vector<std::uint64_t>> BufferSize() const
             {
@@ -144,11 +146,11 @@ namespace SPTAG
                 return std::move(files);
             }
 
-            ErrorCode SaveConfig(std::shared_ptr<Helper::DiskPriorityIO> p_configout);
-            ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams);
+            ErrorCode SaveConfig(std::shared_ptr<Helper::DiskIO> p_configout);
+            ErrorCode SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
 
             ErrorCode LoadConfig(Helper::IniReader& p_reader);
-            ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams);
+            ErrorCode LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
             ErrorCode LoadIndexDataFromMemory(const std::vector<ByteArray>& p_indexBlobs);
 
             ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false);
@@ -163,7 +165,7 @@ namespace SPTAG
             std::string GetParameter(const char* p_param, const char* p_section = nullptr) const;
             ErrorCode UpdateIndex();
 
-            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskPriorityIO>>& p_indexStreams, IAbortOperation* p_abort);
+            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort);
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex);
 
         private:

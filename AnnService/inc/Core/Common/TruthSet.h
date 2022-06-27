@@ -13,7 +13,7 @@ namespace SPTAG
     {
         class TruthSet {
         public:
-            static void LoadTruthTXT(std::shared_ptr<SPTAG::Helper::DiskPriorityIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber)
+            static void LoadTruthTXT(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber)
             {
                 std::size_t lineBufferSize = 20;
                 std::unique_ptr<char[]> currentLine(new char[lineBufferSize]);
@@ -22,22 +22,25 @@ namespace SPTAG
                 for (int i = 0; i < p_iTruthNumber; ++i)
                 {
                     truth[i].clear();
-                    for (int j = 0; j < K; ++j)
-                    {
-                        if (ptr->ReadString(lineBufferSize, currentLine, ' ') == 0) {
-                            LOG(Helper::LogLevel::LL_Error, "Truth number(%d) and query number(%d) are not match!\n", i, p_iTruthNumber);
-                            exit(1);
-                        }
-                        truth[i].insert(std::atoi(currentLine.get()));
-                    }
                     if (ptr->ReadString(lineBufferSize, currentLine, '\n') == 0) {
                         LOG(Helper::LogLevel::LL_Error, "Truth number(%d) and query number(%d) are not match!\n", i, p_iTruthNumber);
                         exit(1);
                     }
+                    char* tmp = strtok(currentLine.get(), " ");
+                    for (int j = 0; j < K; ++j)
+                    {
+                        if (tmp == nullptr) {
+                            LOG(Helper::LogLevel::LL_Error, "Truth number(%d, %d) and query number(%d) are not match!\n", i, j, p_iTruthNumber);
+                            exit(1);
+                        }
+                        int vid = std::atoi(tmp);
+                        if (vid >= 0) truth[i].insert(vid);
+                        tmp = strtok(nullptr, " ");
+                    }
                 }
             }
 
-            static void LoadTruthXVEC(std::shared_ptr<SPTAG::Helper::DiskPriorityIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber)
+            static void LoadTruthXVEC(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber)
             {
                 truth.clear();
                 truth.resize(p_iTruthNumber);
@@ -56,7 +59,7 @@ namespace SPTAG
                 }
             }
 
-            static void LoadTruthDefault(std::shared_ptr<SPTAG::Helper::DiskPriorityIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber) {
+            static void LoadTruthDefault(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, SizeType& p_iTruthNumber) {
                 if (ptr->TellP() == 0) {
                     int row;
                     if (ptr->ReadBinary(4, (char*)&row) != 4 || ptr->ReadBinary(4, (char*)&originalK) != 4) {
@@ -77,7 +80,7 @@ namespace SPTAG
                 }
             }
 
-            static void LoadTruth(std::shared_ptr<SPTAG::Helper::DiskPriorityIO>& ptr, std::vector<std::set<SizeType>>& truth, SizeType& NumQuerys, int& originalK, int K, TruthFileType type)
+            static void LoadTruth(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, SizeType& NumQuerys, int& originalK, int K, TruthFileType type)
             {
                 if (type == TruthFileType::TXT)
                 {
@@ -158,22 +161,25 @@ namespace SPTAG
 
             template<typename T>
             static void GenerateTruth(std::shared_ptr<VectorSet> querySet, std::shared_ptr<VectorSet> vectorSet, const std::string truthFile,
-                const SPTAG::DistCalcMethod distMethod, const int K, const SPTAG::TruthFileType p_truthFileType) {
-                if (querySet->Dimension() != vectorSet->Dimension() && !SPTAG::COMMON::DistanceUtils::Quantizer)
+                const SPTAG::DistCalcMethod distMethod, const int K, const SPTAG::TruthFileType p_truthFileType, const std::shared_ptr<IQuantizer>& quantizer) {
+                if (querySet->Dimension() != vectorSet->Dimension() && !quantizer)
                 {
                     LOG(Helper::LogLevel::LL_Error, "query and vector have different dimensions.");
-                    exit(-1);
+                    exit(1);
                 }
 
+                LOG(Helper::LogLevel::LL_Info, "Begin to generate truth for query(%d,%d) and doc(%d,%d)...\n", querySet->Count(), querySet->Dimension(), vectorSet->Count(), vectorSet->Dimension());
                 std::vector< std::vector<SPTAG::SizeType> > truthset(querySet->Count(), std::vector<SPTAG::SizeType>(K, 0));
                 std::vector< std::vector<float> > distset(querySet->Count(), std::vector<float>(K, 0));
+                auto fComputeDistance = quantizer ? quantizer->DistanceCalcSelector<T>(distMethod) : COMMON::DistanceCalcSelector<T>(distMethod);
 #pragma omp parallel for
                 for (int i = 0; i < querySet->Count(); ++i)
                 {
                     SPTAG::COMMON::QueryResultSet<T> query((const T*)(querySet->GetVector(i)), K);
+                    query.SetTarget((const T*)(querySet->GetVector(i)), quantizer);
                     for (SPTAG::SizeType j = 0; j < vectorSet->Count(); j++)
                     {
-                        float dist = SPTAG::COMMON::DistanceUtils::ComputeDistance(query.GetQuantizedTarget(), reinterpret_cast<T*>(vectorSet->GetVector(j)), vectorSet->Dimension(), distMethod);
+                        float dist = fComputeDistance(query.GetQuantizedTarget(), reinterpret_cast<T*>(vectorSet->GetVector(j)), vectorSet->Dimension());
                         query.AddPoint(j, dist);
                     }
                     query.SortResult();
@@ -185,7 +191,7 @@ namespace SPTAG
                     }
 
                 }
-
+                LOG(Helper::LogLevel::LL_Info, "Start to write truth file...\n");
                 writeTruthFile(truthFile, querySet->Count(), K, truthset, distset, p_truthFileType);
 
                 auto ptr = SPTAG::f_createIO();
@@ -214,13 +220,14 @@ namespace SPTAG
             }
 
             template <typename T>
-            static float CalculateRecall(VectorIndex* index, std::vector<QueryResult>& results, const std::vector<std::set<SizeType>>& truth, int K, int truthK, std::shared_ptr<SPTAG::VectorSet> querySet, std::shared_ptr<SPTAG::VectorSet> vectorSet, SizeType NumQuerys, std::ofstream* log = nullptr, bool debug = false)
+            static float CalculateRecall(VectorIndex* index, std::vector<QueryResult>& results, const std::vector<std::set<SizeType>>& truth, int K, int truthK, std::shared_ptr<SPTAG::VectorSet> querySet, std::shared_ptr<SPTAG::VectorSet> vectorSet, SizeType NumQuerys, std::ofstream* log = nullptr, bool debug = false, float* MRR = nullptr)
             {
-                float meanrecall = 0, minrecall = MaxDist, maxrecall = 0, stdrecall = 0;
+                float meanrecall = 0, minrecall = MaxDist, maxrecall = 0, stdrecall = 0, meanmrr = 0;
                 std::vector<float> thisrecall(NumQuerys, 0);
                 std::unique_ptr<bool[]> visited(new bool[K]);
                 for (SizeType i = 0; i < NumQuerys; i++)
                 {
+                    int minpos = K;
                     memset(visited.get(), 0, K * sizeof(bool));
                     for (SizeType id : truth[i])
                     {
@@ -232,6 +239,7 @@ namespace SPTAG
                             {
                                 thisrecall[i] += 1;
                                 visited[j] = true;
+                                if (j < minpos) minpos = j;
                                 break;
                             }
                             else if (vectorSet != nullptr) {
@@ -250,10 +258,11 @@ namespace SPTAG
                             }
                         }
                     }
-                    thisrecall[i] /= truthK;
+                    thisrecall[i] /= truth[i].size();
                     meanrecall += thisrecall[i];
                     if (thisrecall[i] < minrecall) minrecall = thisrecall[i];
                     if (thisrecall[i] > maxrecall) maxrecall = thisrecall[i];
+                    if (minpos < K) meanmrr += 1.0f / (minpos + 1);
 
                     if (debug) {
                         std::string ll("recall:" + std::to_string(thisrecall[i]) + "\ngroundtruth:");
@@ -282,6 +291,7 @@ namespace SPTAG
                 }
                 stdrecall = std::sqrt(stdrecall / NumQuerys);
                 if (log) (*log) << meanrecall << " " << stdrecall << " " << minrecall << " " << maxrecall << std::endl;
+                if (MRR) *MRR = meanmrr / NumQuerys;
                 return meanrecall;
             }
 
@@ -290,12 +300,12 @@ namespace SPTAG
                 COMMON::QueryResultSet<void> sampleANN(query, K);
                 COMMON::QueryResultSet<void> sampleTruth(query, K);
                 void* reconstructVector = nullptr;
-                if (SPTAG::COMMON::DistanceUtils::Quantizer)
+                if (index->m_pQuantizer)
                 {
-                    reconstructVector = _mm_malloc(SPTAG::COMMON::DistanceUtils::Quantizer->ReconstructSize(), ALIGN_SPTAG);
-                    SPTAG::COMMON::DistanceUtils::Quantizer->ReconstructVector((const uint8_t*)query, reconstructVector);
-                    sampleANN.SetTarget(reconstructVector);
-                    sampleTruth.SetTarget(reconstructVector);
+                    reconstructVector = ALIGN_ALLOC(index->m_pQuantizer->ReconstructSize());
+                    index->m_pQuantizer->ReconstructVector((const uint8_t*)query, reconstructVector);
+                    sampleANN.SetTarget(reconstructVector, index->m_pQuantizer);
+                    sampleTruth.SetTarget(reconstructVector, index->m_pQuantizer);
                 }
 
                 index->SearchIndex(sampleANN);
@@ -324,7 +334,7 @@ namespace SPTAG
                 }
                 if (reconstructVector)
                 {
-                    _mm_free(reconstructVector);
+                    ALIGN_FREE(reconstructVector);
                 }
 
                 return recalls / K;

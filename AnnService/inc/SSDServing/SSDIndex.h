@@ -133,6 +133,7 @@ namespace SPTAG {
                             double endTime = threadws.getElapsedMs();
                             p_index->DebugSearchDiskIndex(p_results[index], p_internalResultNum, p_internalResultNum, &(p_stats[index]));
                             double exEndTime = threadws.getElapsedMs();
+                            p_results[index].ClearTmp();
 
                             p_stats[index].m_exLatency = exEndTime - endTime;
                             p_stats[index].m_totalLatency = p_stats[index].m_totalSearchLatency = exEndTime - startTime;
@@ -164,16 +165,17 @@ namespace SPTAG {
                 std::string truthFile = p_opts.m_truthPath;
                 std::string warmupFile = p_opts.m_warmupPath;
 
-                if (COMMON::DistanceUtils::Quantizer)
+                if (p_index->m_pQuantizer)
                 {
-                    COMMON::DistanceUtils::Quantizer->SetEnableADC(p_opts.m_enableADC);
+                   p_index->m_pQuantizer->SetEnableADC(p_opts.m_enableADC);
                 }
 
-                if (!p_opts.m_logFile.empty())
-                {
-                    g_pLogger.reset(new Helper::FileLogger(Helper::LogLevel::LL_Info, p_opts.m_logFile.c_str()));
-                }
-                int numThreads = p_opts.m_iSSDNumberOfThreads;
+//                if (!p_opts.m_logFile.empty())
+//                {
+//                    g_pLogger.reset(new Helper::FileLogger(Helper::LogLevel::LL_Info, p_opts.m_logFile.c_str()));
+//                }
+//                int numThreads = p_opts.m_iSSDNumberOfThreads;
+                int numThreads = 1;
                 int internalResultNum = p_opts.m_searchInternalResultNum;
                 int K = p_opts.m_resultNum;
                 int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
@@ -195,7 +197,7 @@ namespace SPTAG {
                     std::vector<SPANN::SearchStats> warmpUpStats(warmupNumQueries);
                     for (int i = 0; i < warmupNumQueries; ++i)
                     {
-                        warmupResults[i].SetTarget(reinterpret_cast<ValueType*>(warmupQuerySet->GetVector(i)));
+                        (*((COMMON::QueryResultSet<ValueType>*)&warmupResults[i])).SetTarget(reinterpret_cast<ValueType*>(warmupQuerySet->GetVector(i)), p_index->m_pQuantizer);
                         warmupResults[i].Reset();
                     }
 
@@ -219,7 +221,7 @@ namespace SPTAG {
                 std::vector<SPANN::SearchStats> stats(numQueries);
                 for (int i = 0; i < numQueries; ++i)
                 {
-                    results[i].SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)));
+                    (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
                     results[i].Reset();
                 }
 
@@ -245,7 +247,6 @@ namespace SPTAG {
 
                 if (p_opts.m_rerank > 0 && vectorSet != nullptr) {
                     LOG(Helper::LogLevel::LL_Info, "\n Begin rerank...\n");
-                    COMMON::DistanceUtils::Quantizer.reset();
                     for (int i = 0; i < results.size(); i++)
                     {
                         for (int j = 0; j < K; j++)
@@ -260,7 +261,7 @@ namespace SPTAG {
                     K = p_opts.m_rerank;
                 }
 
-                float recall = 0;
+                float recall = 0, MRR = 0;
                 std::vector<std::set<SizeType>> truth;
                 if (!truthFile.empty())
                 {
@@ -278,40 +279,15 @@ namespace SPTAG {
                         LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
                     }
 
-                    recall = COMMON::TruthSet::CalculateRecall<ValueType>((p_index->GetMemoryIndex()).get(), results, truth, K, truthK, querySet, vectorSet, numQueries);
-                    LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f\n", truthK, K, recall);
+                    recall = COMMON::TruthSet::CalculateRecall<ValueType>((p_index->GetMemoryIndex()).get(), results, truth, K, truthK, querySet, vectorSet, numQueries, nullptr, false, &MRR);
+                    LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
                 }
 
-                long long exCheckSum = 0;
-                int exCheckMax = 0;
-                long long exListSum = 0;
-                std::for_each(stats.begin(), stats.end(), [&](const SPANN::SearchStats& p_stat)
-                    {
-                        exCheckSum += p_stat.m_exCheck;
-                        exCheckMax = std::max<int>(exCheckMax, p_stat.m_exCheck);
-                        exListSum += p_stat.m_totalListElementsCount;
-                    });
-
-                LOG(Helper::LogLevel::LL_Info,
-                    "Max Ex Dist Check: %d, Average Ex Dist Check: %.2lf, Average Ex Elements Count: %.2lf.\n",
-                    exCheckMax,
-                    static_cast<double>(exCheckSum) / numQueries,
-                    static_cast<double>(exListSum) / numQueries);
-
-                LOG(Helper::LogLevel::LL_Info, "\nSleep Latency Distribution:\n");
+                LOG(Helper::LogLevel::LL_Info, "\nEx Elements Count:\n");
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
                     [](const SPANN::SearchStats& ss) -> double
                     {
-                        return ss.m_sleepLatency;
-                    },
-                    "%.3lf");
-
-
-                LOG(Helper::LogLevel::LL_Info, "\nIn Queue Latency Distribution:\n");
-                PrintPercentiles<double, SPANN::SearchStats>(stats,
-                    [](const SPANN::SearchStats& ss) -> double
-                    {
-                        return ss.m_queueLatency;
+                        return ss.m_totalListElementsCount;
                     },
                     "%.3lf");
 
@@ -331,19 +307,11 @@ namespace SPTAG {
                     },
                     "%.3lf");
 
-                LOG(Helper::LogLevel::LL_Info, "\nTotal Search Latency Distribution:\n");
-                PrintPercentiles<double, SPANN::SearchStats>(stats,
-                    [](const SPANN::SearchStats& ss) -> double
-                    {
-                        return ss.m_totalSearchLatency;
-                    },
-                    "%.3lf");
-
                 LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distribution:\n");
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
                     [](const SPANN::SearchStats& ss) -> double
                     {
-                        return ss.m_totalLatency;
+                        return ss.m_totalSearchLatency;
                     },
                     "%.3lf");
 
@@ -372,11 +340,7 @@ namespace SPTAG {
                 }
 
                 LOG(Helper::LogLevel::LL_Info,
-                    "Recall: %f, MaxExCheck: %d, AverageExCheck: %.2lf, AverageExElements: %.2lf\n",
-                    recall,
-                    exCheckMax,
-                    static_cast<double>(exCheckSum) / numQueries,
-                    static_cast<double>(exListSum) / numQueries);
+                    "Recall@%d: %f MRR@%d: %f\n", K, recall, K, MRR);
 
                 LOG(Helper::LogLevel::LL_Info, "\n");
 
