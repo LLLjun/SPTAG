@@ -218,13 +218,14 @@ namespace SPTAG
             m_index->SearchIndex(p_query);
 #endif
 
+            // 这里if-else的逻辑是，InternalResultNum可以比最终的K个结果小，因为有posting list的存在还可以补充一部分
             COMMON::QueryResultSet<T>* p_queryResults;
             if (p_query.GetResultNum() >= m_options.m_searchInternalResultNum)
                 p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
             else
                 p_queryResults = new COMMON::QueryResultSet<T>((const T*)p_query.GetTarget(), m_options.m_searchInternalResultNum);
 
-            m_index->SearchIndex(*p_queryResults);          // 这里为什么多一次？
+            // m_index->SearchIndex(*p_queryResults);          // 这里为什么多一次？
 
             if (m_pQuantizer.get() != m_index->m_pQuantizer.get()) { p_queryResults->SetTarget(p_queryResults->GetTarget(), m_index->m_pQuantizer); }
             std::shared_ptr<ExtraWorkSpace> workSpace = nullptr;

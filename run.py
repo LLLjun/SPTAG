@@ -2,7 +2,7 @@ import os
 
 dataset = "deep"
 vecdim  = 96
-size_base = 1
+size_base = 10
 format = "Float"
 
 stage = "search"

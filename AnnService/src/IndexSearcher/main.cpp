@@ -172,7 +172,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     int baseSquare = SPTAG::COMMON::Utils::GetBase<T>() * SPTAG::COMMON::Utils::GetBase<T>();
 
     // For Profiling
-    std::vector<SPTAG::SPANN::SearchStats> tatalstats(maxCheck.size());
+    std::vector<SPTAG::SPANN::SearchStats> totalstats(maxCheck.size());
     std::vector<SPTAG::SPANN::SearchStats> stats(options->m_batch);
 
     // LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
@@ -269,14 +269,14 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             totalLatency[mc] += batchLatency;
 
             for (int qid = 0; qid < numQuerys; qid++){
-                tatalstats[mc].m_exCheck += stats[qid].m_exCheck;
-                tatalstats[mc].m_totalListElementsCount += stats[qid].m_totalListElementsCount;
-                tatalstats[mc].m_diskIOCount += stats[qid].m_diskIOCount;
-                tatalstats[mc].m_diskAccessCount += stats[qid].m_diskAccessCount;
+                totalstats[mc].m_exCheck += stats[qid].m_exCheck;
+                totalstats[mc].m_totalListElementsCount += stats[qid].m_totalListElementsCount;
+                totalstats[mc].m_diskIOCount += stats[qid].m_diskIOCount;
+                totalstats[mc].m_diskAccessCount += stats[qid].m_diskAccessCount;
 
-                tatalstats[mc].m_totalSearchLatency += stats[qid].m_totalSearchLatency;
-                tatalstats[mc].m_exLatency += stats[qid].m_exLatency;
-                // tatalstats[mc].m_totalLatency += stats[qid].m_totalLatency;
+                totalstats[mc].m_totalSearchLatency += stats[qid].m_totalSearchLatency;
+                totalstats[mc].m_exLatency += stats[qid].m_exLatency;
+                // totalstats[mc].m_totalLatency += stats[qid].m_totalLatency;
             }
         }
 
@@ -357,12 +357,12 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         // LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n", 0, queryVectors->Count(), 
         printf("%s\t%.4f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n",
             maxCheck[mc].c_str(), (totalRecall[mc] / queryVectors->Count()), 
-            (1.0 * tatalstats[mc].m_diskIOCount / queryVectors->Count()),
-            (1.0 * tatalstats[mc].m_diskAccessCount / queryVectors->Count()),
+            (1.0 * totalstats[mc].m_diskIOCount / queryVectors->Count()),
+            (1.0 * totalstats[mc].m_diskAccessCount / queryVectors->Count()),
             (queryVectors->Count() / totalLatency[mc] * 1000000),
             (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()),
-            (1.0 * tatalstats[mc].m_exLatency / queryVectors->Count()),
-            (1.0 * tatalstats[mc].m_totalSearchLatency / queryVectors->Count())
+            (1.0 * totalstats[mc].m_exLatency / queryVectors->Count()),
+            (1.0 * totalstats[mc].m_totalSearchLatency / queryVectors->Count())
             );
 
     LOG(Helper::LogLevel::LL_Info, "Output results finish!\n");
