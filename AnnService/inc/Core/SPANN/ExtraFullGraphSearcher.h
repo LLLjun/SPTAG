@@ -222,6 +222,10 @@ namespace SPTAG
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
                     char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
 
+#ifdef NMP_TRACE
+                    m_trace->addTrace(0, static_cast<uint64_t>(listInfo->pageOffset), static_cast<uint64_t>(totalBytes));
+#endif
+
 #ifdef ASYNC_READ       
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;

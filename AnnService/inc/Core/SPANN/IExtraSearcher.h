@@ -156,6 +156,43 @@ namespace SPTAG {
             static std::atomic_int g_spaceCount;
         };
 
+#ifdef NMP_TRACE
+        struct TraceLine {
+            uint64_t Request_Arrival_Time;
+            int Device_Number;
+            uint64_t Starting_Logical_Sector_Address;
+            uint64_t Request_Size_In_Sectors;
+            int Type_of_Requests;
+
+            TraceLine(uint64_t arrival_time, uint64_t logical_address, uint64_t size): 
+                        Request_Arrival_Time(arrival_time), Device_Number(0), Starting_Logical_Sector_Address(logical_address),
+                        Request_Size_In_Sectors(size), Type_of_Requests(1) {}
+        };
+        class NmpTrace {
+        public:
+            NmpTrace(int SetSize = 100000) {
+                TraceSet.reserve(SetSize);
+            }
+            void addTrace(uint64_t arrival_time, uint64_t logical_address, uint64_t size) {
+                TraceSet.push_back(TraceLine(arrival_time, logical_address, size));
+            }
+            void outputTrace(std::string file) {
+                std::ofstream file_writer(file.c_str());
+                for (TraceLine& line: TraceSet) {
+                    file_writer << line.Request_Arrival_Time << " "
+                                << line.Device_Number << " "
+                                << line.Starting_Logical_Sector_Address << " "
+                                << line.Request_Size_In_Sectors << " "
+                                << line.Type_of_Requests << "\n";
+                }
+                file_writer.close();
+                printf("[Trace] Output %lu trace lines to %s success\n", TraceSet.size(), file.c_str());
+            }
+        private:
+            std::vector<TraceLine> TraceSet;
+        };
+#endif
+
         class IExtraSearcher
         {
         public:
@@ -181,6 +218,9 @@ namespace SPTAG {
                 Options& p_opt) = 0;
 
             virtual bool CheckValidPosting(SizeType postingID) = 0;
+#ifdef NMP_TRACE
+            std::shared_ptr<NmpTrace> m_trace = std::make_shared<NmpTrace>();
+#endif
         };
     } // SPANN
 } // SPTAG

@@ -30,6 +30,8 @@
 #include <mm_malloc.h>
 #endif
 
+#define NMP_TRACE
+
 #define FolderSep '/'
 
 inline bool direxists(const char* path) {

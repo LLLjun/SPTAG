@@ -332,6 +332,11 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
 
     LOG(Helper::LogLevel::LL_Info, "Output results finish!\n");
 
+#ifdef NMP_TRACE
+    std::string trace_file = "../output/trace/toy.trace";
+    index.SaveTrace(trace_file);
+#endif
+
     if (fp != nullptr) fp->ShutDown();
     log.close();
     return 0;

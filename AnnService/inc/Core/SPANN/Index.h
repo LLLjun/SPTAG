@@ -138,6 +138,12 @@ namespace SPTAG
             ErrorCode DeleteIndex(const SizeType& p_id) { return ErrorCode::Undefined; }
             ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort) { return ErrorCode::Undefined; }
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
+#ifdef NMP_TRACE
+            void SaveTrace(std::string file) {
+                if (m_extraSearcher->m_trace != nullptr)
+                    m_extraSearcher->m_trace->outputTrace(file);
+            }
+#endif
         private:
             bool CheckHeadIndexType();
             void SelectHeadAdjustOptions(int p_vectorCount);

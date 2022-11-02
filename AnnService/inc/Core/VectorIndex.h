@@ -151,6 +151,9 @@ public:
 
     void BuildMetaMapping(bool p_checkDeleted = true);
 
+#ifdef NMP_TRACE
+    void SaveTrace(std::string file) {};
+#endif
 private:
     ErrorCode LoadIndexConfig(Helper::IniReader& p_reader);
 
