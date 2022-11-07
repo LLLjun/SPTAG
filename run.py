@@ -8,6 +8,7 @@ class RunConfig:
     path_base   = None
     path_query  = None
     path_index  = None
+    path_result = None
     path_config = "Config/billion/"
 
     def __init__(self, dataname, mode="billion"):
@@ -37,13 +38,14 @@ class RunConfig:
             self.path_gt     = path_dataset + "/groundtruth.bin"
             self.path_base   = path_dataset + "/base"
             self.path_query  = path_dataset + "/query"
-            self.path_index = "graphindex/" + self.dataset
+            self.path_index  = "graphindex/" + self.dataset
         elif self.mode == "toy":
             path_dataset = "../dataset/sift"
             self.path_gt     = path_dataset + "/sift10m/groundtruth.10m.bin"
             self.path_base   = path_dataset + "/sift10m/base.10m.u8bin"
             self.path_query  = path_dataset + "/query.public.10K.u8bin"
-            self.path_index = "graphindex/toy/sift10m_12"
+            self.path_index  = "graphindex/toy/sift10m_12"
+            self.path_result = "output/result/toy/sift10m_rc10.log"
 
     def make(self, stage):
         cmake_mode = "Release"
@@ -69,6 +71,7 @@ class RunConfig:
                         "-t 200"
             os.system(cmd_build)
         elif stage == "search":
+            batch_size = 10
             for t in [1]:
                 cmd_search = "./Release/indexsearcher " + \
                             "-d " + str(self.vecdim) + " " + \
@@ -79,7 +82,9 @@ class RunConfig:
                             "-t " + str(t) + " " + \
                             "-k 10 " + \
                             "-x " + self.path_index + " " + \
-                            "-m 100"
+                            "-m 100 " + \
+                            "-b " + str(batch_size)
+                            # "-o " + self.path_result
                 os.system(cmd_search)
 
     def make_run(self, stage):

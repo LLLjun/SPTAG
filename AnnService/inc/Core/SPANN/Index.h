@@ -140,8 +140,8 @@ namespace SPTAG
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
 #ifdef NMP_TRACE
             void SaveTrace(std::string file) {
-                if (m_extraSearcher->m_trace != nullptr)
-                    m_extraSearcher->m_trace->outputTrace(file);
+                m_extraSearcher->m_trace->outputTrace(file);
+                m_extraSearcher->m_trace->clear();
             }
 #endif
         private:

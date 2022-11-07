@@ -223,7 +223,7 @@ namespace SPTAG
                     char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
 
 #ifdef NMP_TRACE
-                    m_trace->addTrace(0, static_cast<uint64_t>(listInfo->pageOffset), static_cast<uint64_t>(totalBytes));
+                    m_trace->addTrace(0, (listInfo->listOffset >> PageSizeEx), listInfo->listPageCount);
 #endif
 
 #ifdef ASYNC_READ       

@@ -172,24 +172,61 @@ namespace SPTAG {
         public:
             NmpTrace(int SetSize = 100000) {
                 TraceSet.reserve(SetSize);
+                page_per_channel = (uint64_t)ceil(1.0 * max_page / num_channel);
+                if (isTypeSector)
+                    sector_per_page = 8;
             }
             void addTrace(uint64_t arrival_time, uint64_t logical_address, uint64_t size) {
-                TraceSet.push_back(TraceLine(arrival_time, logical_address, size));
+                uint64_t round_time = TraceSet.size();
+                TraceSet.push_back(TraceLine(round_time, logical_address, size));
+            }
+            void clear() {
+                std::vector<TraceLine>().swap(TraceSet);
             }
             void outputTrace(std::string file) {
+                std::vector<TraceLine> TraceSetRefine;
+                TraceSetRefine.reserve(TraceSet.size());
+                allocLogicAddress(TraceSetRefine);
+
                 std::ofstream file_writer(file.c_str());
-                for (TraceLine& line: TraceSet) {
+                for (TraceLine& line: TraceSetRefine) {
                     file_writer << line.Request_Arrival_Time << " "
                                 << line.Device_Number << " "
-                                << line.Starting_Logical_Sector_Address << " "
-                                << line.Request_Size_In_Sectors << " "
+                                << line.Starting_Logical_Sector_Address * sector_per_page << " "
+                                << line.Request_Size_In_Sectors * sector_per_page << " "
                                 << line.Type_of_Requests << "\n";
                 }
                 file_writer.close();
-                printf("[Trace] Output %lu trace lines to %s success\n", TraceSet.size(), file.c_str());
+                printf("[Trace] Output %lu trace lines to %s success\n", TraceSetRefine.size(), file.c_str());
             }
         private:
             std::vector<TraceLine> TraceSet;
+            uint64_t max_page = 2120109;
+            uint64_t num_channel = 8;
+            uint64_t page_per_channel;
+            bool isTypeSector = true;
+            uint64_t sector_per_page = 1;
+
+            void allocLogicAddress(std::vector<TraceLine>& TraceSetRefine) {
+                std::vector<int> allocChannel(TraceSet.size(), 0);
+                std::vector<uint64_t> channelSize(num_channel, 0);
+                for (size_t i = 0; i < TraceSet.size(); i++) {
+                    uint64_t address = TraceSet[i].Starting_Logical_Sector_Address;
+                    if (address > max_page) {printf("Error, logical address is out\n"); exit(1);}
+
+                    int i_channel = (int)(address / page_per_channel);
+                    channelSize[i_channel]++;
+                    allocChannel[i] = i_channel;
+                }
+                // select max size channel
+                int max_size_channel = std::max_element(channelSize.begin(), channelSize.end()) - channelSize.begin();
+                for (size_t i = 0; i < allocChannel.size(); i++) {
+                    if (allocChannel[i] == max_size_channel) {
+                        TraceSetRefine.push_back(TraceSet[i]);
+                        TraceSetRefine.back().Request_Arrival_Time = TraceSetRefine.size();
+                    }
+                }
+            }
         };
 #endif
 

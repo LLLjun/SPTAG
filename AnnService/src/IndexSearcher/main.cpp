@@ -170,6 +170,11 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     std::vector<float> latencies(options->m_batch, 0);
     int baseSquare = SPTAG::COMMON::Utils::GetBase<T>() * SPTAG::COMMON::Utils::GetBase<T>();
 
+#ifdef NMP_TRACE
+        std::string trace_path = "output/trace/toy_bs" + std::to_string(options->m_batch);
+        if (!direxists(trace_path.c_str()))
+            mkdir(trace_path.c_str());
+#endif
     LOG(Helper::LogLevel::LL_Info, "[query]\t\t[maxcheck]\t[avg] \t[99%] \t[95%] \t[recall] \t[qps] \t[mem]\n");
     std::vector<float> totalAvg(maxCheck.size(), 0.0), total99(maxCheck.size(), 0.0), total95(maxCheck.size(), 0.0), totalRecall(maxCheck.size(), 0.0), totalLatency(maxCheck.size(), 0.0);
     for (int startQuery = 0; startQuery < queryVectors->Count(); startQuery += options->m_batch)
@@ -254,6 +259,11 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
             totalLatency[mc] += batchLatency;
         }
 
+#ifdef NMP_TRACE
+        std::string trace_file = trace_path + "/" + std::to_string(startQuery) + "-" + std::to_string(startQuery + numQuerys) + ".trace";
+        index.SaveTrace(trace_file);
+#endif
+
         if (fp != nullptr)
         {
             if (options->m_outputformat == 0) {
@@ -331,11 +341,6 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         LOG(Helper::LogLevel::LL_Info, "%d-%d\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\n", 0, queryVectors->Count(), maxCheck[mc].c_str(), (totalAvg[mc] / queryVectors->Count()), (total99[mc] / queryVectors->Count()), (total95[mc] / queryVectors->Count()), (totalRecall[mc] / queryVectors->Count()), (queryVectors->Count() / totalLatency[mc]));
 
     LOG(Helper::LogLevel::LL_Info, "Output results finish!\n");
-
-#ifdef NMP_TRACE
-    std::string trace_file = "../output/trace/toy.trace";
-    index.SaveTrace(trace_file);
-#endif
 
     if (fp != nullptr) fp->ShutDown();
     log.close();
