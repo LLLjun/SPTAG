@@ -260,8 +260,10 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
         }
 
 #ifdef NMP_TRACE
-        std::string trace_file = trace_path + "/" + std::to_string(startQuery) + "-" + std::to_string(startQuery + numQuerys) + ".trace";
-        index.SaveTrace(trace_file);
+        bool is_end = false;
+        if (startQuery + options->m_batch >= queryVectors->Count())
+            is_end = true;
+        index.SaveTrace(trace_path, is_end);
 #endif
 
         if (fp != nullptr)

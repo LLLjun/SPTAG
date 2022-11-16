@@ -170,8 +170,9 @@ namespace SPTAG {
         };
         class NmpTrace {
         public:
-            NmpTrace(int SetSize = 100000) {
-                TraceSet.reserve(SetSize);
+            NmpTrace(int SetSize = 30000) {
+                TracePool.reserve(SetSize);
+                TraceSet.reserve(1000);
                 page_per_channel = (uint64_t)ceil(1.0 * max_page / num_channel);
                 if (isTypeSector)
                     sector_per_page = 8;
@@ -183,35 +184,72 @@ namespace SPTAG {
             void clear() {
                 std::vector<TraceLine>().swap(TraceSet);
             }
-            void outputTrace(std::string file) {
-                std::vector<TraceLine> TraceSetRefine;
-                TraceSetRefine.reserve(TraceSet.size());
-                allocLogicAddress(TraceSetRefine);
+            void outputTrace(std::string dir_trace, bool is_end=false) {
+                // add trace set to trace pool
+                TracePool.push_back(TraceSet);
+                clear();
 
-                std::ofstream file_writer(file.c_str());
-                for (TraceLine& line: TraceSetRefine) {
-                    file_writer << line.Request_Arrival_Time << " "
-                                << line.Device_Number << " "
-                                << line.Starting_Logical_Sector_Address * sector_per_page << " "
-                                << line.Request_Size_In_Sectors * sector_per_page << " "
-                                << line.Type_of_Requests << "\n";
+                if (is_end) {
+                    std::vector<std::vector<TraceLine>> TracePoolRefine;
+                    std::vector<size_t> TraceSize;
+                    for (std::vector<TraceLine>& trace_set: TracePool) {
+                        std::vector<TraceLine> trace_set_refine;
+                        allocLogicAddress(trace_set, trace_set_refine);
+                        TracePoolRefine.push_back(trace_set_refine);
+                        TraceSize.push_back(trace_set_refine.size());
+                    }
+
+                    // output info
+                    std::string file_info = dir_trace + "/0_info.csv";
+                    float t_avg = 1.0 * std::accumulate(TraceSize.begin(), TraceSize.end(), 0) / TraceSize.size();
+                    int t_avg_i = findNearest(TraceSize, t_avg);
+                    int t_max_i = std::max_element(TraceSize.begin(), TraceSize.end()) - TraceSize.begin();
+                    int t_min_i = std::min_element(TraceSize.begin(), TraceSize.end()) - TraceSize.begin();
+                    std::ofstream info_writer(file_info.c_str());
+                    info_writer << "#channel:" << num_channel << "\n";
+                    info_writer << "Type,Value,Range" << "\n";
+                    info_writer << "Avg," << TraceSize[t_avg_i] << "," << std::to_string(t_avg_i) << "," << t_avg << "\n";
+                    info_writer << "Max," << TraceSize[t_max_i] << "," << std::to_string(t_max_i) << "\n";
+                    info_writer << "Min," << TraceSize[t_min_i] << "," << std::to_string(t_min_i) << "\n";
+                    info_writer.close();
+                    // output trace
+                    std::vector<std::pair<std::string, int>> type_pair(3);
+                    type_pair[0] = std::make_pair("avg", t_avg_i);
+                    type_pair[1] = std::make_pair("max", t_max_i);
+                    type_pair[2] = std::make_pair("min", t_min_i);
+                    for (std::pair<std::string, int>& type: type_pair) {
+                        std::string file_trace = dir_trace + "/" + type.first + ".txt";
+                        int cur_batch = type.second;
+                        std::ofstream file_writer(file_trace.c_str());
+                        for (TraceLine& line: TracePoolRefine[cur_batch]) {
+                            file_writer << line.Request_Arrival_Time << " "
+                                        << line.Device_Number << " "
+                                        << line.Starting_Logical_Sector_Address * sector_per_page << " "
+                                        << line.Request_Size_In_Sectors * sector_per_page << " "
+                                        << line.Type_of_Requests << "\n";
+                        }
+                        file_writer.close();
+                    }
+                    printf("[Trace] Output trace lines to %s success\n", dir_trace.c_str());
                 }
-                file_writer.close();
-                printf("[Trace] Output %lu trace lines to %s success\n", TraceSetRefine.size(), file.c_str());
             }
         private:
+            std::vector<std::vector<TraceLine>> TracePool;
             std::vector<TraceLine> TraceSet;
-            uint64_t max_page = 2120109;
-            uint64_t num_channel = 8;
+            // sift1b: 213740788, spacev1b: 147442561
+            uint64_t max_page = 147442561;
+            uint64_t num_channel = 32;
             uint64_t page_per_channel;
             bool isTypeSector = true;
             uint64_t sector_per_page = 1;
 
-            void allocLogicAddress(std::vector<TraceLine>& TraceSetRefine) {
-                std::vector<int> allocChannel(TraceSet.size(), 0);
+            uint64_t total_page = 0;
+
+            void allocLogicAddress(std::vector<TraceLine>& set, std::vector<TraceLine>& set_refine) {
+                std::vector<int> allocChannel(set.size(), 0);
                 std::vector<uint64_t> channelSize(num_channel, 0);
-                for (size_t i = 0; i < TraceSet.size(); i++) {
-                    uint64_t address = TraceSet[i].Starting_Logical_Sector_Address;
+                for (size_t i = 0; i < set.size(); i++) {
+                    uint64_t address = set[i].Starting_Logical_Sector_Address;
                     if (address > max_page) {printf("Error, logical address is out\n"); exit(1);}
 
                     int i_channel = (int)(address / page_per_channel);
@@ -222,10 +260,25 @@ namespace SPTAG {
                 int max_size_channel = std::max_element(channelSize.begin(), channelSize.end()) - channelSize.begin();
                 for (size_t i = 0; i < allocChannel.size(); i++) {
                     if (allocChannel[i] == max_size_channel) {
-                        TraceSetRefine.push_back(TraceSet[i]);
-                        TraceSetRefine.back().Request_Arrival_Time = TraceSetRefine.size();
+                        set_refine.push_back(set[i]);
+                        set_refine.back().Request_Arrival_Time = set_refine.size();
+                        set_refine.back().Starting_Logical_Sector_Address = 
+                                    set_refine.back().Starting_Logical_Sector_Address % page_per_channel;
                     }
                 }
+                total_page += set_refine.size();
+            }
+            int findNearest(std::vector<size_t>& list, float value) {
+                int fid = 0;
+                float diff = std::numeric_limits<float>::max();
+                for (size_t i = 0; i < list.size(); i++) {
+                    float tmp_diff = std::abs(value - list[i]);
+                    if (tmp_diff < diff) {
+                        diff = tmp_diff;
+                        fid = i;
+                    }
+                }
+                return fid;
             }
         };
 #endif

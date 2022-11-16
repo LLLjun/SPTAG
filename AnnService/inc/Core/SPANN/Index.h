@@ -139,9 +139,8 @@ namespace SPTAG
             ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort) { return ErrorCode::Undefined; }
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
 #ifdef NMP_TRACE
-            void SaveTrace(std::string file) {
-                m_extraSearcher->m_trace->outputTrace(file);
-                m_extraSearcher->m_trace->clear();
+            void SaveTrace(std::string dir, bool is_end) {
+                m_extraSearcher->m_trace->outputTrace(dir, is_end);
             }
 #endif
         private:

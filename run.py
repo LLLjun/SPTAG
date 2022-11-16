@@ -4,6 +4,7 @@ class RunConfig:
     dataset = None
     vecdim  = None
     format  = None
+    qsize   = None
     path_gt     = None
     path_base   = None
     path_query  = None
@@ -20,9 +21,11 @@ class RunConfig:
         if self.dataset == "sift":
             self.vecdim  = 128
             self.format = "UInt8"
+            self.qsize   = 10000
         elif self.dataset == "spacev":
             self.vecdim  = 100
             self.format = "Int8"
+            self.qsize   = 29316
         elif self.dataset == "deep":
             self.vecdim  = 96
             self.format = "Float"
@@ -71,7 +74,7 @@ class RunConfig:
                         "-t 200"
             os.system(cmd_build)
         elif stage == "search":
-            batch_size = 10
+            batch_size = 100
             for t in [1]:
                 cmd_search = "./Release/indexsearcher " + \
                             "-d " + str(self.vecdim) + " " + \
