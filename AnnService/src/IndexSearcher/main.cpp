@@ -171,7 +171,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     int baseSquare = SPTAG::COMMON::Utils::GetBase<T>() * SPTAG::COMMON::Utils::GetBase<T>();
 
 #ifdef NMP_TRACE
-        std::string trace_path = "output/trace/toy_bs" + std::to_string(options->m_batch);
+        std::string trace_path = "output/trace/sift1b_bs" + std::to_string(options->m_batch);
         if (!direxists(trace_path.c_str()))
             mkdir(trace_path.c_str());
 #endif

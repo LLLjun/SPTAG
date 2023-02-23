@@ -237,7 +237,7 @@ namespace SPTAG {
             std::vector<std::vector<TraceLine>> TracePool;
             std::vector<TraceLine> TraceSet;
             // sift1b: 213740788, spacev1b: 147442561
-            uint64_t max_page = 147442561;
+            uint64_t max_page = 213740788;
             uint64_t num_channel = 32;
             uint64_t page_per_channel;
             bool isTypeSector = true;

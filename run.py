@@ -98,7 +98,7 @@ class RunConfig:
 def main():
     dataname = "sift"
     stage = "search"
-    mode = "toy"
+    mode = "billion"
 
     Run = RunConfig(dataname, mode)
     Run.make_run(stage)
